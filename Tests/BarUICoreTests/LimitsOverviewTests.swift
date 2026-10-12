@@ -34,6 +34,28 @@ struct LimitsOverviewTests {
         #expect(overview.problem == nil)
     }
 
+    @Test("Refreshing also brings in a Bar App's available and gone Perks")
+    func refreshShowsPerks() async throws {
+        let fixture = try ImportFixture()
+        let time: Int64 = 1_791_791_100_000_000_000
+        try fixture.write(
+            PerkLine.metrics(service: "codexbar", points: [.init(kind: "guest_pass", value: 2, time: time)]),
+            named: "codexbar-metrics-2026-10-12.jsonl", in: fixture.codexFolder
+        )
+        try fixture.write(
+            PerkEventLine.logs(service: "codexbar", events: [.init(name: "bar.perk.gone", kind: "reset_credit", time: time, reason: "used")]),
+            named: "codexbar-logs-2026-10-12.jsonl", in: fixture.codexFolder
+        )
+        let overview = LimitsOverview(archive: fixture.archive)
+
+        await overview.refresh(statuses: [.codexBar: Self.status(.tracking, folder: fixture.codexFolder)])
+
+        #expect(overview.availablePerks(of: .codexBar).map(\.quantity) == [2])
+        #expect(overview.gonePerks(of: .codexBar).map(\.reason) == [.used])
+        #expect(overview.availablePerks(of: .claudeBar).isEmpty)
+        #expect(overview.problem == nil)
+    }
+
     @Test("History is imported while Tracking is off, so it reaches the Archive before retention deletes it")
     func historyIsArchived() async throws {
         let fixture = try ImportFixture()

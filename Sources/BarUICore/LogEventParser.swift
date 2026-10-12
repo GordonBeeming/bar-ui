@@ -20,7 +20,8 @@ public struct LimitReset: Sendable, Hashable {
 
 public struct LogParseResult: Sendable, Equatable {
     public let resets: [LimitReset]
-    /// Lines, resources and `bar.limit.reset` events that broke the Telemetry
+    public let perkGoneEvents: [PerkGoneEvent]
+    /// Lines, resources and `bar.limit.reset` and `bar.perk.*` events that broke the Telemetry
     /// Spec and were dropped. Events the Dashboard doesn't read aren't counted.
     public let droppedRecords: Int
     /// How far into the data the complete, `\n`-terminated lines reach.
@@ -32,14 +33,17 @@ public struct LogParseResult: Sendable, Equatable {
 public enum LogEventParser {
     private static let newline = UInt8(ascii: "\n")
     private static let resetEventName = "bar.limit.reset"
+    private static let perkAvailableEventName = "bar.perk.available"
+    private static let perkGoneEventName = "bar.perk.gone"
 
     public static func parse(_ data: Data, from app: BarApp) -> LogParseResult {
         guard let lastNewline = data.lastIndex(of: newline) else {
-            return LogParseResult(resets: [], droppedRecords: 0, consumedByteCount: 0)
+            return LogParseResult(resets: [], perkGoneEvents: [], droppedRecords: 0, consumedByteCount: 0)
         }
         let complete = data[data.startIndex..<lastNewline]
         let decoder = JSONDecoder()
         var resets: [LimitReset] = []
+        var perkGone: [PerkGoneEvent] = []
         var dropped = 0
 
         for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
@@ -55,11 +59,26 @@ public enum LogEventParser {
                     continue
                 }
                 for scope in resourceLogs.scopeLogs ?? [] {
-                    for record in scope.logRecords ?? [] where record.eventName == resetEventName {
-                        if let reset = reset(from: record, app: app) {
-                            resets.append(reset)
-                        } else {
-                            dropped += 1
+                    for record in scope.logRecords ?? [] {
+                        switch record.eventName {
+                        case resetEventName:
+                            if let reset = reset(from: record, app: app) {
+                                resets.append(reset)
+                            } else {
+                                dropped += 1
+                            }
+                        case perkAvailableEventName, perkGoneEventName:
+                            // An available event is held to the same rules even
+                            // though only gone events are kept.
+                            if let event = perkEvent(from: record, app: app) {
+                                if record.eventName == perkGoneEventName {
+                                    perkGone.append(event)
+                                }
+                            } else {
+                                dropped += 1
+                            }
+                        default:
+                            break
                         }
                     }
                 }
@@ -68,8 +87,49 @@ public enum LogEventParser {
 
         return LogParseResult(
             resets: resets,
+            perkGoneEvents: perkGone,
             droppedRecords: dropped,
             consumedByteCount: lastNewline - data.startIndex + 1
+        )
+    }
+
+    private static func perkEvent(from record: LogRecord, app: BarApp) -> PerkGoneEvent? {
+        let attributes = record.attributes ?? []
+        guard let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
+              let time = record.timeUnixNano, time > 0,
+              let currency = PerkAttributes.currency(of: kind, in: attributes),
+              let expiresAt = PerkAttributes.expiresAt(in: attributes) else {
+            return nil
+        }
+
+        var quantity: Double?
+        if let attribute = attributes.attribute("perk.quantity") {
+            guard let value = attribute.doubleValue ?? attribute.intValue.map(Double.init),
+                  value.isFinite, value > 0 else {
+                return nil
+            }
+            quantity = value
+        } else if kind != .creditGrant {
+            quantity = 1
+        }
+
+        var reason: PerkGoneReason?
+        if let attribute = attributes.attribute("perk.gone.reason") {
+            guard let written = attribute.stringValue, let parsed = PerkGoneReason(rawValue: written), parsed != .unknown else {
+                return nil
+            }
+            reason = parsed
+        }
+
+        return PerkGoneEvent(
+            app: app,
+            kind: kind,
+            currency: currency.value,
+            quantity: quantity,
+            perkID: attributes.string("perk.id"),
+            expiresAt: expiresAt.value,
+            reportedReason: reason,
+            timeUnixNano: time
         )
     }
 

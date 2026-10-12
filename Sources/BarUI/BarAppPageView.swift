@@ -12,6 +12,8 @@ struct BarAppPageView: View {
     let skipped: SkippedRecordsNotice?
     /// Nil when the Archive couldn't be opened; the Overview says why.
     let history: LimitHistoryModel?
+    /// Nil when the Archive couldn't be opened.
+    let overview: LimitsOverview?
 
     @State private var editing: TrackingSettingsEditing?
     @State private var failure: String?
@@ -74,8 +76,17 @@ struct BarAppPageView: View {
             )
         } else if let history {
             ScrollView {
-                LimitHistorySection(app: app, model: history)
-                    .id(app)
+                VStack(alignment: .leading, spacing: 28) {
+                    LimitHistorySection(app: app, model: history)
+                        .id(app)
+                    if let overview {
+                        PerksSectionView(
+                            app: app,
+                            available: overview.availablePerks(of: app),
+                            gone: overview.gonePerks(of: app)
+                        )
+                    }
+                }
             }
         } else {
             ContentUnavailableView(

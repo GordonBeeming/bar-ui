@@ -105,7 +105,7 @@ public actor Archive {
     /// Stores the samples and the file's new read position together, so a
     /// crash part way can't move the position past samples that were lost.
     /// Samples already in the Archive are left as they are.
-    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], progress: ImportProgress) throws {
+    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], perkSamples: [PerkSample] = [], perkGoneEvents: [PerkGoneEvent] = [], progress: ImportProgress) throws {
         try execute("BEGIN IMMEDIATE", operation: "start an import")
         do {
             let describe = try prepare("""
@@ -170,6 +170,38 @@ public actor Archive {
                     .integer(sample.count)
                 )
             }
+            let insertPerk = try prepare("""
+                INSERT OR IGNORE INTO perk_samples (app, kind, currency, time_unix_nano, value, expires_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                """)
+            for sample in perkSamples {
+                try insertPerk.run(
+                    .text(sample.app.rawValue),
+                    .text(sample.kind.rawValue),
+                    .text(sample.currency ?? ""),
+                    .integer(sample.timeUnixNano),
+                    .real(sample.value),
+                    sample.expiresAt.map { .integer($0) } ?? .null
+                )
+            }
+            // The unique index on the table makes a repeat of the same event a no-op.
+            let insertGone = try prepare("""
+                INSERT OR IGNORE INTO perk_gone_events
+                    (app, kind, currency, time_unix_nano, quantity, perk_id, expires_at, reason)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                """)
+            for event in perkGoneEvents {
+                try insertGone.run(
+                    .text(event.app.rawValue),
+                    .text(event.kind.rawValue),
+                    .text(event.currency ?? ""),
+                    .integer(event.timeUnixNano),
+                    event.quantity.map { .real($0) } ?? .null,
+                    .text(event.perkID ?? ""),
+                    event.expiresAt.map { .integer($0) } ?? .null,
+                    event.reportedReason.map { .text($0.rawValue) } ?? .null
+                )
+            }
             try prepare("""
                 INSERT INTO imported_files (app, file_name, byte_offset, dropped_records)
                 VALUES (?1, ?2, ?3, ?4)
@@ -193,6 +225,68 @@ public actor Archive {
             }
             throw error
         }
+    }
+
+    public func availablePerks() throws -> [AvailablePerk] {
+        let statement = try prepare("""
+            SELECT p.app, p.kind, p.currency, p.value, p.expires_at, p.time_unix_nano
+            FROM perk_samples p
+            WHERE p.value > 0 AND p.time_unix_nano = (
+                SELECT MAX(m.time_unix_nano) FROM perk_samples m
+                WHERE m.app = p.app AND m.kind = p.kind AND m.currency = p.currency)
+            """)
+        var perks: [AvailablePerk] = []
+        while try statement.step() {
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+                  let kindName = statement.text(at: 1), let kind = PerkKind(rawValue: kindName) else {
+                continue
+            }
+            perks.append(AvailablePerk(
+                app: app,
+                kind: kind,
+                currency: statement.text(at: 2).flatMap { $0.isEmpty ? nil : $0 },
+                quantity: statement.double(at: 3),
+                expiresAt: statement.optionalInt64(at: 4).map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                sampledAt: Date(unixNano: statement.int64(at: 5))
+            ))
+        }
+        return perks.sorted { ($0.app.rawValue, $0.kind.sortOrder, $0.currency ?? "") < ($1.app.rawValue, $1.kind.sortOrder, $1.currency ?? "") }
+    }
+
+    /// Every gone Perk, newest first, each with its reason settled.
+    public func gonePerks() throws -> [GonePerk] {
+        let statement = try prepare("""
+            SELECT app, kind, currency, quantity, perk_id, expires_at, reason, time_unix_nano
+            FROM perk_gone_events
+            ORDER BY time_unix_nano DESC, rowid DESC
+            """)
+        var perks: [GonePerk] = []
+        while try statement.step() {
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+                  let kindName = statement.text(at: 1), let kind = PerkKind(rawValue: kindName) else {
+                continue
+            }
+            let goneAt = Date(unixNano: statement.int64(at: 7))
+            let expiresAt = statement.optionalInt64(at: 5).map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            perks.append(GonePerk(
+                app: app,
+                kind: kind,
+                currency: statement.text(at: 2).flatMap { $0.isEmpty ? nil : $0 },
+                quantity: statement.optionalDouble(at: 3),
+                perkID: statement.text(at: 4).flatMap { $0.isEmpty ? nil : $0 },
+                expiresAt: expiresAt,
+                goneAt: goneAt,
+                // No event records a redemption yet, so nothing can turn an
+                // unexplained disappearance without an expiry into "used".
+                reason: PerkGoneReason.resolve(
+                    reported: statement.text(at: 6).flatMap(PerkGoneReason.init(rawValue:)),
+                    goneAt: goneAt,
+                    expiresAt: expiresAt,
+                    redemptionOnRecord: false
+                )
+            ))
+        }
+        return perks
     }
 
     public func progress(of app: BarApp, fileName: String) throws -> ImportProgress? {
@@ -411,6 +505,28 @@ public actor Archive {
                 next_resets_at REAL,
                 PRIMARY KEY (app, limit_id, time_unix_nano)
             ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS perk_samples (
+                app TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                value REAL NOT NULL,
+                expires_at INTEGER,
+                PRIMARY KEY (app, kind, currency, time_unix_nano)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS perk_gone_events (
+                app TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                quantity REAL,
+                perk_id TEXT NOT NULL,
+                expires_at INTEGER,
+                reason TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS perk_gone_events_identity ON perk_gone_events (
+                app, kind, currency, time_unix_nano, perk_id,
+                IFNULL(quantity, -1), IFNULL(expires_at, -1), IFNULL(reason, ''));
             CREATE TABLE IF NOT EXISTS imported_files (
                 app TEXT NOT NULL,
                 file_name TEXT NOT NULL,

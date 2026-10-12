@@ -3,6 +3,7 @@ import Foundation
 public struct MetricsParseResult: Sendable, Equatable {
     public let samples: [LimitSample]
     public let tokenSamples: [TokenSample]
+    public let perkSamples: [PerkSample]
     /// Lines, resources and `bar.limit.*` data points that broke the Telemetry
     /// Spec and were dropped. Metrics the spec doesn't define aren't counted.
     public let droppedRecords: Int
@@ -20,12 +21,13 @@ public enum MetricsParser {
 
     public static func parse(_ data: Data, from app: BarApp) -> MetricsParseResult {
         guard let lastNewline = data.lastIndex(of: newline) else {
-            return MetricsParseResult(samples: [], tokenSamples: [], droppedRecords: 0, consumedByteCount: 0)
+            return MetricsParseResult(samples: [], tokenSamples: [], perkSamples: [], droppedRecords: 0, consumedByteCount: 0)
         }
         let complete = data[data.startIndex..<lastNewline]
         let decoder = JSONDecoder()
         var samples: [LimitSample] = []
         var tokenSamples: [TokenSample] = []
+        var perks = PerkAccumulator()
         var dropped = 0
 
         for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
@@ -34,13 +36,14 @@ public enum MetricsParser {
                 continue
             }
             for resourceMetrics in request.resourceMetrics ?? [] {
-                read(resourceMetrics, from: app, into: &samples, tokens: &tokenSamples, dropped: &dropped)
+                read(resourceMetrics, from: app, into: &samples, tokens: &tokenSamples, perks: &perks, dropped: &dropped)
             }
         }
 
         return MetricsParseResult(
             samples: samples,
             tokenSamples: tokenSamples,
+            perkSamples: perks.samples,
             droppedRecords: dropped,
             consumedByteCount: lastNewline - data.startIndex + 1
         )
@@ -51,6 +54,7 @@ public enum MetricsParser {
         from app: BarApp,
         into samples: inout [LimitSample],
         tokens: inout [TokenSample],
+        perks: inout PerkAccumulator,
         dropped: inout Int
     ) {
         let resource = resourceMetrics.resource?.attributes ?? []
@@ -65,6 +69,20 @@ public enum MetricsParser {
             for metric in scope.metrics ?? [] {
                 if metric.name == Self.tokensMetricName {
                     readTokens(metric, from: app, into: &tokens, dropped: &dropped)
+                    continue
+                }
+                if metric.name == PerkSample.metricName {
+                    guard let gauge = metric.gauge else {
+                        dropped += 1
+                        continue
+                    }
+                    for point in gauge.dataPoints ?? [] {
+                        if let sample = perkSample(from: point, app: app) {
+                            perks.add(sample)
+                        } else {
+                            dropped += 1
+                        }
+                    }
                     continue
                 }
                 guard let name = metric.name, let limitMetric = LimitMetric(rawValue: name) else {
@@ -116,6 +134,18 @@ public enum MetricsParser {
             return nil
         }
         return TokenSample(app: app, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
+    }
+
+    private static func perkSample(from point: NumberDataPoint, app: BarApp) -> PerkSample? {
+        let attributes = point.attributes ?? []
+        guard let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value.isFinite, value >= 0,
+              let currency = PerkAttributes.currency(of: kind, in: attributes),
+              let expiresAt = PerkAttributes.expiresAt(in: attributes) else {
+            return nil
+        }
+        return PerkSample(app: app, kind: kind, currency: currency.value, timeUnixNano: time, value: value, expiresAt: expiresAt.value)
     }
 
     /// The Limit attributes every `bar.limit.*` metric point and event carries.

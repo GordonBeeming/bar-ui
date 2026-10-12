@@ -89,6 +89,8 @@ public struct TelemetryImporter: Sendable {
         let samples: [LimitSample]
         let tokenSamples: [TokenSample]
         let resets: [LimitReset]
+        let perkSamples: [PerkSample]
+        let perkGoneEvents: [PerkGoneEvent]
         let consumed: Int
         let dropped: Int
         if app.isLogsFileName(name) {
@@ -96,6 +98,8 @@ public struct TelemetryImporter: Sendable {
             samples = []
             tokenSamples = []
             resets = result.resets
+            perkSamples = []
+            perkGoneEvents = result.perkGoneEvents
             consumed = result.consumedByteCount
             dropped = result.droppedRecords
         } else {
@@ -103,13 +107,15 @@ public struct TelemetryImporter: Sendable {
             samples = result.samples
             tokenSamples = result.tokenSamples
             resets = []
+            perkSamples = result.perkSamples
+            perkGoneEvents = []
             consumed = result.consumedByteCount
             dropped = result.droppedRecords
         }
         guard consumed > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
-        try await archive.record(samples, tokenSamples: tokenSamples, resets: resets, progress: ImportProgress(
+        try await archive.record(samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents, progress: ImportProgress(
             app: app,
             fileName: name,
             byteOffset: offset + Int64(consumed),
