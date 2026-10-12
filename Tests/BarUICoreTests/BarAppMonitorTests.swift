@@ -44,6 +44,34 @@ struct BarAppMonitorTests {
         #expect(monitor.status(of: .claudeBar).state == .tracking)
     }
 
+    @Test("Settings a Bar App applies show up on the next refresh, without a relaunch")
+    func appliedSettingsShowUp() throws {
+        let fixture = try Fixture()
+        let custom = fixture.home.appendingPathComponent("Moved", isDirectory: true)
+        fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.CodexBar"]
+        fixture.preferences.domains["com.gordonbeeming.CodexBar"] = [
+            "telemetryEnabled": true,
+            "telemetryIntervalMinutes": 5,
+            "telemetryRetentionDays": 30
+        ]
+        let monitor = BarAppMonitor(detector: fixture.detector())
+
+        fixture.preferences.domains["com.gordonbeeming.CodexBar"] = [
+            "telemetryEnabled": true,
+            "telemetryIntervalMinutes": 30,
+            "telemetryRetentionDays": 0,
+            "telemetryDirectory": custom.path
+        ]
+        monitor.refresh()
+
+        #expect(monitor.status(of: .codexBar).settings == TrackingSettings(
+            enabled: true,
+            intervalMinutes: 30,
+            retentionDays: 0,
+            folder: custom
+        ))
+    }
+
     @Test("States carry the sidebar's labels")
     func stateTitles() {
         #expect(TrackingState.allCases.map(\.title) == ["Tracking", "Off", "Off with History", "Not installed"])

@@ -20,13 +20,17 @@ public enum TrackingState: Sendable, Hashable, CaseIterable {
 public struct BarAppStatus: Sendable, Hashable {
     public let state: TrackingState
     /// Nil when the Bar App isn't installed: without the app there is no
-    /// setting to read, so any folder named here would be a guess.
-    public let telemetryFolder: URL?
+    /// setting to read, so any value shown would be a guess.
+    public let settings: TrackingSettings?
 
-    public init(state: TrackingState, telemetryFolder: URL?) {
+    public init(state: TrackingState, settings: TrackingSettings?) {
         self.state = state
-        self.telemetryFolder = telemetryFolder
+        self.settings = settings
     }
 
-    public static let notInstalled = BarAppStatus(state: .notInstalled, telemetryFolder: nil)
+    public var telemetryFolder: URL? {
+        settings?.folder
+    }
+
+    public static let notInstalled = BarAppStatus(state: .notInstalled, settings: nil)
 }

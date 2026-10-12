@@ -7,12 +7,15 @@ struct ContentView: View {
     /// with Tracking off, one folder listing, so a short interval is cheap.
     private static let refreshInterval: Duration = .seconds(2)
 
+    private static let home = FileManager.default.homeDirectoryForCurrentUser
+
     @State private var selection: SidebarItem? = .initial
     @State private var monitor = BarAppMonitor(detector: BarAppDetector(
         locator: WorkspaceApplicationLocator(),
         preferences: SystemPreferences(),
-        homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: Self.home
     ))
+    private let remote = BarAppRemote(opener: WorkspaceURLOpener())
 
     var body: some View {
         NavigationSplitView {
@@ -74,7 +77,9 @@ struct ContentView: View {
         switch item {
         case .overview:
             OverviewView()
-        case .barApp, .archive:
+        case .barApp(let app):
+            BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote)
+        case .archive:
             PlaceholderPageView(item: item)
         }
     }

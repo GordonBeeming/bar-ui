@@ -19,6 +19,8 @@ public struct BarAppDetector: Sendable {
     private enum Key {
         static let telemetryEnabled = "telemetryEnabled"
         static let telemetryDirectory = "telemetryDirectory"
+        static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
+        static let telemetryRetentionDays = "telemetryRetentionDays"
     }
 
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "BarAppDetector")
@@ -39,13 +41,24 @@ public struct BarAppDetector: Sendable {
             return .notInstalled
         }
 
-        let folder = telemetryFolder(of: app)
-        let enabled = preferences.value(forKey: Key.telemetryEnabled, inDomain: domain) as? Bool ?? false
-        if enabled {
-            return BarAppStatus(state: .tracking, telemetryFolder: folder)
+        let settings = TrackingSettings(
+            enabled: preferences.value(forKey: Key.telemetryEnabled, inDomain: domain) as? Bool ?? false,
+            intervalMinutes: integer(forKey: Key.telemetryIntervalMinutes, inDomain: domain, within: TrackingSettings.intervalRange),
+            retentionDays: integer(forKey: Key.telemetryRetentionDays, inDomain: domain, within: TrackingSettings.retentionRange),
+            folder: telemetryFolder(of: app)
+        )
+        if settings.enabled {
+            return BarAppStatus(state: .tracking, settings: settings)
         }
-        let state: TrackingState = hasTelemetryFiles(of: app, in: folder) ? .offWithHistory : .off
-        return BarAppStatus(state: state, telemetryFolder: folder)
+        let state: TrackingState = hasTelemetryFiles(of: app, in: settings.folder) ? .offWithHistory : .off
+        return BarAppStatus(state: state, settings: settings)
+    }
+
+    private func integer(forKey key: String, inDomain domain: String, within range: ClosedRange<Int>) -> Int? {
+        guard let value = preferences.value(forKey: key, inDomain: domain) as? Int, range.contains(value) else {
+            return nil
+        }
+        return value
     }
 
     private func telemetryFolder(of app: BarApp) -> URL {
