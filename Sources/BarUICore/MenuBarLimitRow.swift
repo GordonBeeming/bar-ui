@@ -35,7 +35,7 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
             return
         }
         let points = burnRate.percentPerHour.formatted(.number.precision(.fractionLength(0...1)))
-        burnRateText = "\(points) pts/h"
+        burnRateText = "\(points)%/h"
         projectionText = burnRate
             .timeUntilFullBeforeReset(from: card.utilization, resetsAt: card.resetsAt, now: now)
             .map { "At this rate it hits 100% in " + LimitCard.durationText(seconds: $0) }
