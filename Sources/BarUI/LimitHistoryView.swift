@@ -86,7 +86,7 @@ private struct LimitHistoryRowView: View {
                     caption: row.latestSampleAt.map { "used, as of \($0.formatted(Self.sampleFormat))" } ?? "used"
                 )
                 stat(row.unusedAtLastReset.map(DisplayFormat.points) ?? "None yet", caption: "unused at last reset")
-                stat(row.averageUnusedAtReset.map(DisplayFormat.points) ?? "None yet", caption: "average unused at reset")
+                stat(row.averageUnusedAtReset.map(DisplayFormat.points) ?? "None yet", caption: "avg unused at reset · \(row.averageLabel)")
             }
 
             chart
@@ -123,6 +123,10 @@ private struct LimitHistoryRowView: View {
         pointerDate.flatMap { row.hover(at: $0) }
     }
 
+    private var bridgedDates: Set<Date> {
+        Set(row.bridges.flatMap { $0.map(\.date) })
+    }
+
     private var dataExtent: ClosedRange<Date>? {
         guard let first = row.segments.first?.first?.date, let last = row.segments.last?.last?.date else {
             return nil
@@ -130,24 +134,47 @@ private struct LimitHistoryRowView: View {
         return first...last
     }
 
-    private var chart: some View {
-        Chart {
-            ForEach(Array(row.segments.enumerated()), id: \.offset) { index, segment in
-                ForEach(segment, id: \.date) { point in
-                    // A series per run, so Charts never joins the end of one
-                    // run to the start of the next across a Tracking gap.
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Used", point.percent),
-                        series: .value("Run", index)
-                    )
-                    .foregroundStyle(brand)
-                    if segment.count == 1 {
-                        PointMark(x: .value("Time", point.date), y: .value("Used", point.percent))
-                            .foregroundStyle(brand)
-                    }
+    /// A series per run, so Charts never joins the end of one run to the start
+    /// of the next by itself; the bridges do that, drawn fainter.
+    @ChartContentBuilder
+    private var runMarks: some ChartContent {
+        ForEach(Array(row.segments.enumerated()), id: \.offset) { index, segment in
+            ForEach(segment, id: \.date) { (point: LimitHistoryRow.Point) in
+                LineMark(
+                    x: .value("Time", point.date),
+                    y: .value("Used", point.percent),
+                    series: .value("Run", "run-\(index)")
+                )
+                .foregroundStyle(brand)
+                // A lone sample needs a dot to be seen, unless a bridge
+                // already runs into it.
+                if segment.count == 1, !bridgedDates.contains(point.date) {
+                    PointMark(x: .value("Time", point.date), y: .value("Used", point.percent))
+                        .foregroundStyle(brand)
                 }
             }
+        }
+    }
+
+    @ChartContentBuilder
+    private var bridgeMarks: some ChartContent {
+        ForEach(Array(row.bridges.enumerated()), id: \.offset) { index, bridge in
+            ForEach(bridge, id: \.date) { (point: LimitHistoryRow.Point) in
+                LineMark(
+                    x: .value("Time", point.date),
+                    y: .value("Used", point.percent),
+                    series: .value("Run", "bridge-\(index)")
+                )
+                .foregroundStyle(brand.opacity(0.45))
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            }
+        }
+    }
+
+    private var chart: some View {
+        Chart {
+            runMarks
+            bridgeMarks
             ForEach(row.resetMarkers, id: \.date) { marker in
                 RuleMark(x: .value("Reset", marker.date))
                     .foregroundStyle(.secondary.opacity(0.6))
@@ -173,7 +200,7 @@ private struct LimitHistoryRowView: View {
             }
         }
         .chartXSelection(value: $pointerDate)
-        .edgeSafeTimeAxis()
+        .edgeSafeTimeAxis(unit: range.bucketComponent, span: dataExtent, desiredCount: 6)
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(values: [0, 50, 100]) { value in

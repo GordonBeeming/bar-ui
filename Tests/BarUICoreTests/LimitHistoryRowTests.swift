@@ -22,6 +22,31 @@ struct LimitHistoryRowTests {
         #expect(row.averageUnusedAtReset == 45)
     }
 
+    @Test("The average and last reset come from all resets, not just the chart's range")
+    func averageBeyondTheRange() throws {
+        let weekly = LimitDescriptor(id: "weekly_all", name: "Weekly (all models)", windowDurationMinutes: 10_080, modelID: nil)
+        let history = LimitHistory(
+            app: .claudeBar,
+            limit: weekly,
+            utilization: [ArchivedSample(timeUnixNano: Self.nano(30 * 86_400), value: 20)],
+            latest: nil,
+            resets: []
+        )
+        let older = [(1, 60.0), (8, 40.0), (15, 5.0)].map { day, used in
+            LimitReset(app: .claudeBar, limit: weekly, timeUnixNano: Self.nano(day * 86_400), utilizationLast: used, nextResetsAt: nil)
+        }
+
+        let row = LimitHistoryRow(history: history, averageResets: older, now: Self.date(30 * 86_400))
+
+        // Days 1 and 8 are inside the last 5 weeks and average 40% and 60%
+        // unused to 50%; day 15, at 5% used, is too quiet to count, but it is
+        // still the last reset.
+        let average = try #require(row.averageUnusedAtReset)
+        #expect(abs(average - 50) < 1e-9)
+        #expect(row.averageLabel == "last 5 weeks")
+        #expect(row.unusedAtLastReset == 95)
+    }
+
     @Test("With no resets there is nothing to report as Unused at Reset")
     func noResets() {
         let row = LimitHistoryRow(history: Self.history(utilization: [(0, 10), (300, 20)], resets: []))
@@ -54,6 +79,32 @@ struct LimitHistoryRowTests {
         let row = LimitHistoryRow(history: history)
 
         #expect(row.segments.map { $0.map(\.percent) } == [[10], [5, 7]])
+    }
+
+    @Test("A gap with no reset in it is bridged from the last sample before to the first after")
+    func bridgedGap() {
+        let history = Self.history(utilization: [
+            (0, 10), (300, 12), (600, 14), (900, 16),
+            (900 + 6 * 3600, 16), (900 + 6 * 3600 + 300, 18)
+        ], resets: [])
+
+        let row = LimitHistoryRow(history: history)
+
+        #expect(row.bridges.map { $0.map(\.percent) } == [[16, 16]])
+        #expect(row.bridges.map { $0.map(\.date) } == [[Self.date(900), Self.date(900 + 6 * 3600)]])
+    }
+
+    @Test("A gap with a reset in it stays open, so the drop isn't drawn as a slope")
+    func resetInGapIsNotBridged() {
+        let history = Self.history(utilization: [
+            (0, 70), (300, 75), (600, 80),
+            (600 + 6 * 3600, 5), (600 + 6 * 3600 + 300, 7)
+        ], resets: [(600 + 3 * 3600, 80)])
+
+        let row = LimitHistoryRow(history: history)
+
+        #expect(row.segments.count == 2)
+        #expect(row.bridges.isEmpty)
     }
 
     @Test("Samples at the usual pace stay one line")

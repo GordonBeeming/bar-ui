@@ -24,10 +24,12 @@ public final class LimitHistoryModel {
         }
         do {
             let histories = try await archive.limitHistories(of: app, since: range.start(now: now))
+            // The averages look back over their own span, not the chart's range.
+            let resets = try await archive.limitResets(of: app)
             guard loadedApp == app, !Task.isCancelled else {
                 return
             }
-            rows = LimitHistoryRow.rows(from: histories)
+            rows = LimitHistoryRow.rows(from: histories, resets: resets, now: now)
             problem = nil
         } catch {
             // Keep the rows already on screen: a failed read says nothing
