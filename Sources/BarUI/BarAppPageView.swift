@@ -8,6 +8,8 @@ struct BarAppPageView: View {
     let status: BarAppStatus
     let home: URL
     let remote: BarAppRemote
+    /// Nil when nothing from this Bar App was skipped.
+    let skipped: SkippedRecordsNotice?
 
     @State private var editing: TrackingSettingsEditing?
     @State private var failure: String?
@@ -25,6 +27,10 @@ struct BarAppPageView: View {
                 TrackingOffBanner(hasHistory: status.state == .offWithHistory) {
                     editing = TrackingSettingsEditing(app: app, current: settings, startEnabled: true)
                 }
+            }
+
+            if let skipped {
+                SkippedRecordsBanner(notice: skipped)
             }
 
             if let failure {
@@ -100,5 +106,31 @@ private struct TrackingOffBanner: View {
         .padding(.vertical, 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct SkippedRecordsBanner: View {
+    let notice: SkippedRecordsNotice
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            TimelineView(.everyMinute) { context in
+                Text(message(now: context.date))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func message(now: Date) -> AttributedString {
+        var link = AttributedString(SkippedRecordsNotice.specName)
+        link.link = SkippedRecordsNotice.specURL
+        return AttributedString("\(notice.message(now: now)) ") + link + AttributedString(".")
     }
 }

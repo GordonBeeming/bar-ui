@@ -12,6 +12,10 @@ public final class LimitsOverview {
     /// Why the last refresh couldn't read everything, for the Overview to show.
     public private(set) var problem: String?
 
+    /// Per Bar App, what was dropped for not following the Telemetry Spec.
+    /// A Bar App with nothing dropped has no entry.
+    public private(set) var skippedRecords: [BarApp: SkippedRecordsNotice] = [:]
+
     private let archive: Archive
     private let importer: TelemetryImporter
     private var isRefreshing = false
@@ -57,6 +61,16 @@ public final class LimitsOverview {
         } catch {
             problems.append(error.localizedDescription)
         }
+
+        var notices: [BarApp: SkippedRecordsNotice] = [:]
+        for app in BarApp.allCases {
+            do {
+                notices[app] = SkippedRecordsNotice(days: try await archive.skippedRecords(of: app))
+            } catch {
+                problems.append(error.localizedDescription)
+            }
+        }
+        skippedRecords = notices
         problem = problems.isEmpty ? nil : problems.joined(separator: "\n")
     }
 }

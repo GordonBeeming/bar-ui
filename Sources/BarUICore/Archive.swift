@@ -154,6 +154,22 @@ public actor Archive {
         )
     }
 
+    /// Records dropped for a Bar App, per day of the file they were in, oldest
+    /// first. Counted from the files' import progress, so it stays complete
+    /// after the Bar App deletes the files.
+    public func skippedRecords(of app: BarApp) throws -> [SkippedRecords] {
+        let statement = try prepare("SELECT file_name, dropped_records FROM imported_files WHERE app = ?1 AND dropped_records > 0")
+        try statement.bind(.text(app.rawValue))
+        var perDay: [TelemetryDay: Int] = [:]
+        while try statement.step() {
+            guard let name = statement.text(at: 0), let day = TelemetryDay(fileName: name) else {
+                continue
+            }
+            perDay[day, default: 0] += Int(statement.int64(at: 1))
+        }
+        return perDay.map { SkippedRecords(day: $0.key, count: $0.value) }.sorted { $0.day < $1.day }
+    }
+
     public func currentLimits() throws -> [CurrentLimit] {
         let statement = try prepare("""
             SELECT l.app, l.limit_id, l.name, l.window_minutes, l.model_id, u.time_unix_nano, u.value,
