@@ -138,18 +138,17 @@ private struct LimitCardView: View {
                 }
             }
 
-            Gauge(value: min(max(card.utilization, 0), 100), in: 0...100) {
-                Text("\(card.appName) \(card.windowName) used")
-            }
-            .gaugeStyle(.linearCapacity)
-            .tint(card.severity.meterColor(for: card.app))
-            .labelsHidden()
+            LimitMeter(fraction: card.utilization / 100, color: card.severity.meterColor(for: card.app), paceMark: card.windowElapsed)
+                .accessibilityLabel("\(card.appName) \(card.windowName) used")
+                .accessibilityValue(DisplayFormat.points(card.percentUsed))
 
-            Text(card.resetText)
+            if let pace = card.paceText, let gap = card.paceGap {
+                PaceLabel(text: pace, gap: gap)
+            }
+            Text(card.resetDetailText)
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .help(card.resetsAt.map { $0.formatted(Self.resetFormat) } ?? card.resetText)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)

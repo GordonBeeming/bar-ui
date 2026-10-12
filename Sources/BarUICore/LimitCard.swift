@@ -32,6 +32,16 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     public let severity: Severity
     public let resetsAt: Date?
     public let resetText: String
+    /// How much of the Window has gone, 0 to 1: the point the meter would be
+    /// at if usage were spread evenly. Nil when the Window's length or reset
+    /// time isn't known, or the reset is already due.
+    public let windowElapsed: Double?
+    /// Positive is over, negative is headroom; nil when `windowElapsed` is.
+    public let paceGap: Int?
+    /// "24% headroom" or "10% over", or nil when `windowElapsed` is.
+    public let paceText: String?
+    /// "Resets Tomorrow 5:00 PM · in 1d 9h".
+    public let resetDetailText: String
 
     public var id: String {
         "\(app.rawValue)/\(limitID)"
@@ -60,6 +70,24 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
         severity = Severity(utilization: limit.utilization)
         resetsAt = limit.resetsAt
         resetText = Self.resetText(until: limit.resetsAt, now: now)
+        windowElapsed = Self.windowElapsed(minutes: limit.limit.windowDurationMinutes, resetsAt: limit.resetsAt, now: now)
+        paceGap = Self.paceGap(utilization: limit.utilization, windowElapsed: windowElapsed)
+        paceText = Self.paceText(utilization: limit.utilization, windowElapsed: windowElapsed)
+        resetDetailText = Self.resetDetail(until: limit.resetsAt, now: now)
+    }
+
+    static func windowElapsed(minutes: Int?, resetsAt: Date?, now: Date) -> Double? {
+        guard let minutes, minutes > 0, let resetsAt else {
+            return nil
+        }
+        let remaining = resetsAt.timeIntervalSince(now)
+        guard remaining > 0 else {
+            return nil
+        }
+        let length = TimeInterval(minutes) * 60
+        // A reset further out than one Window (clock skew, a stale sample)
+        // reads as the Window just starting rather than a negative share.
+        return min(max(1 - remaining / length, 0), 1)
     }
 
     /// Bar Apps in their sidebar order, then shortest Window first, so the
@@ -88,6 +116,53 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
             return "Resetting now"
         }
         return "Resets in " + durationText(seconds: seconds)
+    }
+
+    /// How far usage is from an even spread over the Window, in whole
+    /// percentage points: positive is over (using allowance meant for later in
+    /// the Window), negative is headroom that can be used now.
+    static func paceGap(utilization: Double, windowElapsed: Double?) -> Int? {
+        windowElapsed.map { Int((utilization - $0 * 100).rounded()) }
+    }
+
+    /// "24% headroom" or "10% over". The line isn't a target: headroom is
+    /// what can still be used without running out before the reset.
+    static func paceText(utilization: Double, windowElapsed: Double?) -> String? {
+        guard let gap = paceGap(utilization: utilization, windowElapsed: windowElapsed) else {
+            return nil
+        }
+        return gap > 0 ? "\(gap)% over" : "\(-gap)% headroom"
+    }
+
+    /// The reset as a clock time plus a countdown: the time on its own for
+    /// today, "Tomorrow" or the weekday within a week, the date beyond that.
+    static func resetDetail(until resetsAt: Date?, now: Date, calendar: Calendar = .current) -> String {
+        guard let resetsAt else {
+            return "Reset time unknown"
+        }
+        let seconds = resetsAt.timeIntervalSince(now)
+        guard seconds > 0 else {
+            return "Resetting now"
+        }
+        let locale = calendar.locale ?? .current
+        let time = Self.formatted(resetsAt, template: "jmm", calendar: calendar, locale: locale)
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: resetsAt)).day ?? 0
+        let when: String = switch days {
+        case 0: time
+        case 1: "Tomorrow \(time)"
+        case 2..<7: Self.formatted(resetsAt, template: "EEE", calendar: calendar, locale: locale) + " \(time)"
+        default: Self.formatted(resetsAt, template: "MMMd", calendar: calendar, locale: locale) + ", \(time)"
+        }
+        return "Resets \(when) · in \(durationText(seconds: seconds))"
+    }
+
+    private static func formatted(_ date: Date, template: String, calendar: Calendar, locale: Locale) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter.string(from: date)
     }
 
     /// Rounding down keeps a countdown from promising more time than there is.

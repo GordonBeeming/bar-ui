@@ -8,11 +8,11 @@ struct BurnRateTextTests {
     private static let cases: [(Double, String)] = [
         (24, "+24%/h"),
         (3.24, "+3.2%/h"),
-        (0.04, "Steady"),
-        (0, "Steady")
+        (0.04, "0%/h"),
+        (0, "0%/h")
     ]
 
-    @Test("A rising Window reads as points gained per hour; one that isn't moving reads as steady", arguments: cases)
+    @Test("A rising Window reads as points gained per hour; one that isn't moving reads as 0%/h", arguments: cases)
     func text(percentPerHour: Double, expected: String) {
         #expect(MenuBarLimitRow.burnRateText(percentPerHour: percentPerHour) == expected)
     }

@@ -1,0 +1,66 @@
+import Foundation
+import Testing
+@testable import BarUICore
+
+@Suite("Limit pace and reset text")
+struct LimitPaceTextTests {
+    /// Mon 12 Oct 2026, 07:50 UTC.
+    private static let now = Date(timeIntervalSince1970: 1_791_791_400)
+
+    private static var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        if let zone = TimeZone(identifier: "UTC") {
+            calendar.timeZone = zone
+        }
+        calendar.locale = Locale(identifier: "en_US")
+        return calendar
+    }
+
+    // Typed up front so the @Test macro doesn't have to infer the tuples.
+    // (Utilization %, share of the Window gone, expected text.)
+    private static let paces: [(Double, Double?, String?)] = [
+        (55, 0.58, "3% headroom"),
+        (20, 0.10, "10% over"),
+        (30, 0.30, "0% headroom"),
+        (30.2, 0.30, "0% headroom"),
+        (30, nil, nil)
+    ]
+
+    @Test("How far usage is from an even spread over the Window, as a number either way", arguments: paces)
+    func pace(utilization: Double, elapsed: Double?, expected: String?) {
+        #expect(LimitCard.paceText(utilization: utilization, windowElapsed: elapsed) == expected)
+    }
+
+    // (Utilization %, share of the Window gone, expected gap: positive is ahead.)
+    private static let gaps: [(Double, Double?, Int?)] = [
+        (55, 0.58, -3),
+        (20, 0.10, 10),
+        (30.2, 0.30, 0),
+        (30, nil, nil)
+    ]
+
+    @Test("The gap's sign says which side of pace usage is on", arguments: gaps)
+    func gap(utilization: Double, elapsed: Double?, expected: Int?) {
+        #expect(LimitCard.paceGap(utilization: utilization, windowElapsed: elapsed) == expected)
+    }
+
+    // (Seconds from now until the reset, expected text.)
+    private static let resets: [(TimeInterval?, String)] = [
+        (95 * 60, "Resets 9:25 AM · in 1h 35m"),
+        (33 * 3_600 + 10 * 60, "Resets Tomorrow 5:00 PM · in 1d 9h"),
+        (3 * 86_400 + 9 * 3_600 + 10 * 60, "Resets Thu 5:00 PM · in 3d 9h"),
+        (10 * 86_400, "Resets Oct 22, 7:50 AM · in 10d"),
+        (0, "Resetting now"),
+        (nil, "Reset time unknown")
+    ]
+
+    @Test("The reset reads as a clock time and a countdown", arguments: resets)
+    func resetDetail(seconds: TimeInterval?, expected: String) {
+        let resetsAt = seconds.map { Self.now.addingTimeInterval($0) }
+
+        let text = LimitCard.resetDetail(until: resetsAt, now: Self.now, calendar: Self.utc)
+
+        // Newer ICU puts a narrow no-break space before AM/PM.
+        #expect(text.replacingOccurrences(of: "\u{202F}", with: " ") == expected)
+    }
+}

@@ -103,31 +103,27 @@ private struct PreviewContent: View {
                 .textCase(.uppercase)
                 .tracking(0.4)
                 .foregroundStyle(.secondary)
-            HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(DisplayFormat.tokens(usage.total))
-                            .font(.system(size: 28, weight: .bold))
-                            .monospacedDigit()
-                        Text("tokens")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
-                        .font(.caption)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(DisplayFormat.tokens(usage.total))
+                        .font(.system(size: 28, weight: .bold))
                         .monospacedDigit()
+                    Text("tokens")
+                        .font(.callout)
                         .foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
+                    Spacer()
+                    // The currency symbol says what this is; the label only
+                    // took space.
                     Text(cost(for: usage)?.value ?? "–")
                         .font(.title3.weight(.bold))
                         .monospacedDigit()
-                    Text("API Cost")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .help(cost(for: usage)?.rateNote ?? "Loading prices")
+                        .accessibilityLabel("API Cost \(cost(for: usage)?.value ?? "loading")")
                 }
-                .help(cost(for: usage)?.rateNote ?? "Loading prices")
+                Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
             HourlyChart(usage: usage)
         }
@@ -195,10 +191,6 @@ private struct BarAppLimitsCard: View {
                     .accessibilityHidden(true)
                 Text(app.displayName)
                     .font(.callout.weight(.semibold))
-                Spacer()
-                Text(rows.count == 1 ? "1 Limit" : "\(rows.count) Limits")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
             ForEach(rows) { row in
@@ -228,23 +220,16 @@ private struct LimitRowView: View {
                     .monospacedDigit()
                     .foregroundStyle(row.severity == .normal ? AnyShapeStyle(.primary) : AnyShapeStyle(row.severity.labelColor))
             }
-            // A drawn bar rather than Gauge: the linear Gauge styles show
-            // their label inside the bar even when labels are hidden.
-            Meter(fraction: min(max(row.utilization, 0), 100) / 100, color: row.severity.meterColor(for: row.app))
+            LimitMeter(fraction: row.utilization / 100, color: row.severity.meterColor(for: row.app), paceMark: row.windowElapsed)
                 .accessibilityLabel("\(row.windowName) used")
                 .accessibilityValue(DisplayFormat.points(row.percentUsed))
-            HStack {
-                Text(row.burnRateText)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .fontWeight(row.isBurnRateHighlighted ? .semibold : .regular)
-                    .foregroundStyle(row.isBurnRateHighlighted ? Self.paceTint : .secondary)
-                Spacer(minLength: 8)
-                Text(row.resetText)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+            if let pace = row.paceText, let gap = row.paceGap {
+                PaceLabel(text: pace, gap: gap, emphasised: row.isBurnRateHighlighted)
             }
+            Text(row.resetDetailText)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
             // A fast burn is a heads-up about pace, not a fault, so it uses the
             // running-low amber; red stays for a Limit that is nearly used up.
             if let projection = row.projectionText {
@@ -257,22 +242,5 @@ private struct LimitRowView: View {
             }
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct Meter: View {
-    let fraction: Double
-    let color: Color
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(color)
-                    .frame(width: max(proxy.size.width * fraction, fraction > 0 ? 6 : 0))
-            }
-        }
-        .frame(height: 6)
     }
 }

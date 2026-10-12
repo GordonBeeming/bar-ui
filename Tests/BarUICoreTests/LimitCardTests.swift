@@ -101,4 +101,31 @@ struct LimitCardTests {
 
         #expect(card?.resetText == "Reset time unknown")
     }
+
+    // Typed up front so the @Test macro doesn't have to infer the tuples.
+    // (Window minutes, seconds until reset, expected share of the Window gone.)
+    private static let paceMarks: [(Int?, TimeInterval?, Double?)] = [
+        (300, 3_600, 0.8),
+        (10_080, 3 * 86_400 + 12 * 3_600, 0.5),
+        (300, 300 * 60, 0),
+        (300, 400 * 60, 0),
+        (300, 0, nil),
+        (300, -60, nil),
+        (nil, 3_600, nil),
+        (300, nil, nil)
+    ]
+
+    @Test("The pace mark is how much of the Window has gone, from its length and reset time", arguments: paceMarks)
+    func paceMark(minutes: Int?, resetsIn: TimeInterval?, expected: Double?) throws {
+        let limit = Self.limit(.claudeBar, "session", "Session (5h)", minutes: minutes, used: 10, resetsIn: resetsIn)
+
+        let card = try #require(LimitCard.cards(for: [limit], states: Self.bothTracking, now: Self.now).first)
+
+        if let expected {
+            let mark = try #require(card.windowElapsed)
+            #expect(abs(mark - expected) < 1e-9)
+        } else {
+            #expect(card.windowElapsed == nil)
+        }
+    }
 }

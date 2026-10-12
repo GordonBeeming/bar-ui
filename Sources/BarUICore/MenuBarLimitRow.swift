@@ -11,6 +11,15 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     public let percentUsed: Int
     public let severity: LimitCard.Severity
     public let resetText: String
+    /// "Resets Tomorrow 5:00 PM · in 1d 9h".
+    public let resetDetailText: String
+    /// Where the meter would be with usage spread evenly over the Window.
+    public let windowElapsed: Double?
+    /// "24% headroom" or "10% over", or nil when the Window's length or reset
+    /// is unknown.
+    public let paceText: String?
+    /// Positive is over, negative is headroom.
+    public let paceGap: Int?
     public let burnRateText: String
     /// Set only when 100% comes before the Window resets.
     public let projectionText: String?
@@ -33,6 +42,10 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
         percentUsed = card.percentUsed
         severity = card.severity
         resetText = card.resetText
+        resetDetailText = card.resetDetailText
+        windowElapsed = card.windowElapsed
+        paceText = card.paceText
+        paceGap = card.paceGap
 
         // Samples a few minutes apart can leave the last hour with one point;
         // the longer pace still says how fast the Window is filling.
@@ -53,12 +66,12 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
             .map { "On pace to run out in " + LimitCard.durationText(seconds: $0) + ", before it resets" }
     }
 
-    /// The sign says the Window is filling up; a rate that shows as zero at
-    /// one decimal place reads as steady rather than "0%/h".
+    /// The sign says the Window is filling up; a rate that rounds to zero at
+    /// one decimal place shows as 0%/h with no sign.
     static func burnRateText(percentPerHour: Double) -> String {
         let rounded = (percentPerHour * 10).rounded() / 10
         guard rounded > 0 else {
-            return "Steady"
+            return "0%/h"
         }
         return "+" + rounded.formatted(.number.precision(.fractionLength(0...1))) + "%/h"
     }
