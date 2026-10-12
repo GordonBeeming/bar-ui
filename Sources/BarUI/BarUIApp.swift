@@ -54,9 +54,12 @@ struct BarUIApp: App {
         }
         .defaultSize(width: 1440, height: 900)
 
-        MenuBarExtra("Bar UI", systemImage: "chart.bar.xaxis") {
+        MenuBarExtra {
             MenuBarPreviewView(preview: archive.preview, monitor: monitor, archiveFailure: archive.failure)
                 .environment(pricing)
+        } label: {
+            Image(nsImage: MenuBarIcon.image)
+                .accessibilityLabel("Bar UI")
         }
         .menuBarExtraStyle(.window)
 
