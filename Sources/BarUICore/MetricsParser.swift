@@ -1,52 +1,22 @@
 import Foundation
 
-public struct MetricsParseResult: Sendable, Equatable {
-    public let samples: [LimitSample]
-    public let tokenSamples: [TokenSample]
-    public let perkSamples: [PerkSample]
-    /// Lines, resources and `bar.limit.*` data points that broke the Telemetry
-    /// Spec and were dropped. Metrics the spec doesn't define aren't counted.
-    public let droppedRecords: Int
-    /// How far into the data the complete, `\n`-terminated lines reach. A
-    /// trailing partial line is left for the next read, once it's finished.
-    public let consumedByteCount: Int
-}
-
-/// Reads the Limit samples out of a Bar App's OTLP/JSON metrics lines,
+/// Reads the Limit, token and Perk samples out of a Bar App's OTLP/JSON metrics lines,
 /// following Telemetry Spec v1. Anything that doesn't conform is dropped and
 /// counted, never guessed at.
 public enum MetricsParser {
     private static let tokensMetricName = "bar.tokens"
-    private static let newline = UInt8(ascii: "\n")
 
-    public static func parse(_ data: Data, from app: BarApp) -> MetricsParseResult {
-        guard let lastNewline = data.lastIndex(of: newline) else {
-            return MetricsParseResult(samples: [], tokenSamples: [], perkSamples: [], droppedRecords: 0, consumedByteCount: 0)
-        }
-        let complete = data[data.startIndex..<lastNewline]
-        let decoder = JSONDecoder()
-        var samples: [LimitSample] = []
-        var tokenSamples: [TokenSample] = []
+    public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
+        var records = TelemetryRecords()
         var perks = PerkAccumulator()
         var dropped = 0
-
-        for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
-            guard let request = try? decoder.decode(ExportMetricsServiceRequest.self, from: Data(line)) else {
-                dropped += 1
-                continue
-            }
+        let lines = OTLPLines.forEachRequest(in: data, as: ExportMetricsServiceRequest.self) { request in
             for resourceMetrics in request.resourceMetrics ?? [] {
-                read(resourceMetrics, from: app, into: &samples, tokens: &tokenSamples, perks: &perks, dropped: &dropped)
+                read(resourceMetrics, from: app, into: &records.limitSamples, tokens: &records.tokenSamples, perks: &perks, dropped: &dropped)
             }
         }
-
-        return MetricsParseResult(
-            samples: samples,
-            tokenSamples: tokenSamples,
-            perkSamples: perks.samples,
-            droppedRecords: dropped,
-            consumedByteCount: lastNewline - data.startIndex + 1
-        )
+        records.perkSamples = perks.samples
+        return TelemetryParseResult(records: records, droppedRecords: dropped + lines.undecodableLines, consumedByteCount: lines.consumedByteCount)
     }
 
     private static func read(
@@ -60,8 +30,7 @@ public enum MetricsParser {
         let resource = resourceMetrics.resource?.attributes ?? []
         // A record from another spec version or another Bar App can't be read
         // as this one's, so the whole resource goes rather than part of it.
-        guard resource.string("bar.spec.version") == "1",
-              resource.string("service.name") == app.serviceName else {
+        guard OTLPLines.isConforming(resource: resource, of: app) else {
             dropped += 1
             return
         }
@@ -111,7 +80,7 @@ public enum MetricsParser {
     ) {
         // Reading a cumulative count as anything else would turn totals into
         // increments, so a Sum of another shape is dropped whole.
-        guard let sum = metric.sum, sum.aggregationTemporality == 2, sum.isMonotonic == true else {
+        guard let sum = metric.sum, !sum.isMalformed, sum.aggregationTemporality == 2, sum.isMonotonic == true else {
             dropped += 1
             return
         }
@@ -126,7 +95,8 @@ public enum MetricsParser {
 
     private static func tokenSample(from point: NumberDataPoint, app: BarApp) -> TokenSample? {
         let attributes = point.attributes ?? []
-        guard let model = attributes.string("model"), !model.isEmpty,
+        guard !point.isMalformed,
+              let model = attributes.string("model"), !model.isEmpty,
               let typeName = attributes.string("token.type"), let tokenType = TokenType(rawValue: typeName),
               let start = point.startTimeUnixNano, start > 0,
               let time = point.timeUnixNano, time > 0,
@@ -138,7 +108,8 @@ public enum MetricsParser {
 
     private static func perkSample(from point: NumberDataPoint, app: BarApp) -> PerkSample? {
         let attributes = point.attributes ?? []
-        guard let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
+        guard !point.isMalformed,
+              let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
               let time = point.timeUnixNano, time > 0,
               let value = point.value, value.isFinite, value >= 0,
               let currency = PerkAttributes.currency(of: kind, in: attributes),
@@ -148,29 +119,10 @@ public enum MetricsParser {
         return PerkSample(app: app, kind: kind, currency: currency.value, timeUnixNano: time, value: value, expiresAt: expiresAt.value)
     }
 
-    /// The Limit attributes every `bar.limit.*` metric point and event carries.
-    /// Nil when one the spec requires is missing or broken.
-    static func limitDescriptor(from attributes: [KeyValue]) -> LimitDescriptor? {
-        guard let id = attributes.string("limit.id"), !id.isEmpty,
-              let name = attributes.string("limit.name"), !name.isEmpty else {
-            return nil
-        }
-
-        var duration: Int?
-        if let attribute = attributes.first(where: { $0.key == "limit.window.duration_minutes" }) {
-            // The spec says to leave the attribute out when unknown, so one
-            // that is present but zero or not an int is a broken record.
-            guard let minutes = attribute.value?.intValue, minutes > 0, let exact = Int(exactly: minutes) else {
-                return nil
-            }
-            duration = exact
-        }
-        return LimitDescriptor(id: id, name: name, windowDurationMinutes: duration, modelID: attributes.string("model.id"))
-    }
-
     private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
         let attributes = point.attributes ?? []
-        guard let limit = limitDescriptor(from: attributes),
+        guard !point.isMalformed,
+              let limit = OTLPLines.limitDescriptor(from: attributes),
               let time = point.timeUnixNano, time > 0,
               let value = point.value, value.isFinite else {
             return nil
@@ -220,6 +172,8 @@ private struct Sum: Decodable {
     let aggregationTemporality: Int?
     let isMonotonic: Bool?
     let dataPoints: [NumberDataPoint]?
+    /// A field was present but of the wrong type.
+    let isMalformed: Bool
 
     private enum CodingKeys: String, CodingKey {
         case aggregationTemporality, isMonotonic, dataPoints
@@ -227,9 +181,11 @@ private struct Sum: Decodable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        aggregationTemporality = try? container.decodeIfPresent(Int.self, forKey: .aggregationTemporality)
-        isMonotonic = try? container.decodeIfPresent(Bool.self, forKey: .isMonotonic)
-        dataPoints = try? container.decodeIfPresent([NumberDataPoint].self, forKey: .dataPoints)
+        var malformed = false
+        aggregationTemporality = container.decodeLeniently(Int.self, forKey: .aggregationTemporality, malformed: &malformed)
+        isMonotonic = container.decodeLeniently(Bool.self, forKey: .isMonotonic, malformed: &malformed)
+        dataPoints = container.decodeLeniently([NumberDataPoint].self, forKey: .dataPoints, malformed: &malformed)
+        isMalformed = malformed
     }
 }
 
@@ -242,6 +198,8 @@ private struct NumberDataPoint: Decodable {
     let startTimeUnixNano: Int64?
     let timeUnixNano: Int64?
     let value: Double?
+    /// Some field, or an attribute's value, was present but of the wrong type.
+    let isMalformed: Bool
 
     private enum CodingKeys: String, CodingKey {
         case attributes, startTimeUnixNano, timeUnixNano, asDouble, asInt
@@ -249,65 +207,13 @@ private struct NumberDataPoint: Decodable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        attributes = try? container.decodeIfPresent([KeyValue].self, forKey: .attributes)
-        startTimeUnixNano = (try? container.decodeIfPresent(OTLPInt.self, forKey: .startTimeUnixNano))?.value
-        timeUnixNano = (try? container.decodeIfPresent(OTLPInt.self, forKey: .timeUnixNano))?.value
-        if let double = try? container.decodeIfPresent(Double.self, forKey: .asDouble) {
-            value = double
-        } else if let int = (try? container.decodeIfPresent(OTLPInt.self, forKey: .asInt))?.value {
-            value = Double(int)
-        } else {
-            value = nil
-        }
-    }
-}
-
-struct KeyValue: Decodable {
-    let key: String
-    let value: AnyValue?
-}
-
-struct AnyValue: Decodable {
-    let stringValue: String?
-    let intValue: Int64?
-    let doubleValue: Double?
-
-    private enum CodingKeys: String, CodingKey {
-        case stringValue, intValue, doubleValue
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        stringValue = try? container.decodeIfPresent(String.self, forKey: .stringValue)
-        intValue = (try? container.decodeIfPresent(OTLPInt.self, forKey: .intValue))?.value
-        doubleValue = try? container.decodeIfPresent(Double.self, forKey: .doubleValue)
-    }
-}
-
-/// OTLP/JSON writes 64-bit integers as strings, and receivers are expected to
-/// take a plain JSON number too.
-struct OTLPInt: Decodable {
-    let value: Int64
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let string = try? container.decode(String.self) {
-            guard let parsed = Int64(string) else {
-                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Not a 64-bit integer: \(string)")
-            }
-            value = parsed
-        } else {
-            value = try container.decode(Int64.self)
-        }
-    }
-}
-
-extension [KeyValue] {
-    func string(_ key: String) -> String? {
-        first { $0.key == key }?.value?.stringValue
-    }
-
-    func attribute(_ key: String) -> AnyValue? {
-        first { $0.key == key }?.value
+        var malformed = false
+        attributes = container.decodeLeniently([KeyValue].self, forKey: .attributes, malformed: &malformed)
+        startTimeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .startTimeUnixNano, malformed: &malformed)?.value
+        timeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .timeUnixNano, malformed: &malformed)?.value
+        let double = container.decodeLeniently(Double.self, forKey: .asDouble, malformed: &malformed)
+        let int = container.decodeLeniently(OTLPInt.self, forKey: .asInt, malformed: &malformed)?.value
+        value = double ?? int.map(Double.init)
+        isMalformed = malformed || attributes?.isMalformed == true
     }
 }

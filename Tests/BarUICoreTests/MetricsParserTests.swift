@@ -12,7 +12,7 @@ struct MetricsParserTests {
 
         #expect(result.droppedRecords == 0)
         #expect(result.consumedByteCount == data.count)
-        let latest = result.samples.filter { $0.timeUnixNano == 1_791_791_400_000_000_000 }
+        let latest = result.limitSamples.filter { $0.timeUnixNano == 1_791_791_400_000_000_000 }
         #expect(latest.count == 6)
 
         let opus = try #require(latest.first { $0.limit.id == "weekly_scoped:claude-opus-4-1" && $0.metric == .utilization })
@@ -35,11 +35,11 @@ struct MetricsParserTests {
         let result = MetricsParser.parse(data, from: .codexBar)
 
         #expect(result.droppedRecords == 0)
-        #expect(result.samples.count == 4)
-        let utilisations = result.samples.filter { $0.metric == .utilization }.map(\.value)
+        #expect(result.limitSamples.count == 4)
+        let utilisations = result.limitSamples.filter { $0.metric == .utilization }.map(\.value)
         #expect(utilisations == [17, 18.5])
-        #expect(result.samples.allSatisfy { $0.limit.id == "codex:10080" && $0.limit.name == "Weekly" && $0.app == .codexBar })
-        let reset = try #require(result.samples.first { $0.metric == .resetsAt })
+        #expect(result.limitSamples.allSatisfy { $0.limit.id == "codex:10080" && $0.limit.name == "Weekly" && $0.app == .codexBar })
+        let reset = try #require(result.limitSamples.first { $0.metric == .resetsAt })
         #expect(reset.value == 1_792_310_768)
     }
 
@@ -52,7 +52,7 @@ struct MetricsParserTests {
         let result = MetricsParser.parse(cutMidway, from: .codexBar)
 
         #expect(result.consumedByteCount == firstLineEnd + 1)
-        #expect(result.samples.count == 2)
+        #expect(result.limitSamples.count == 2)
         #expect(result.droppedRecords == 0)
     }
 
@@ -65,7 +65,7 @@ struct MetricsParserTests {
         let result = MetricsParser.parse(line, from: .codexBar)
 
         #expect(result.droppedRecords == 0)
-        let sample = result.samples.first
+        let sample = result.limitSamples.first
         #expect(sample?.limit.id == "codex:primary")
         #expect(sample?.limit.windowDurationMinutes == nil)
     }
@@ -82,7 +82,7 @@ struct MetricsParserTests {
 
         let result = MetricsParser.parse(line, from: .claudeBar)
 
-        #expect(result.samples.map(\.value) == [40])
+        #expect(result.limitSamples.map(\.value) == [40])
         #expect(result.droppedRecords == 4)
     }
 
@@ -96,8 +96,31 @@ struct MetricsParserTests {
 
         let result = MetricsParser.parse(data, from: .claudeBar)
 
-        #expect(result.samples.isEmpty)
+        #expect(result.limitSamples.isEmpty)
         #expect(result.droppedRecords == 4)
+    }
+
+    @Test("A data point with an attribute value of the wrong type is dropped and counted, while its neighbour on the line is kept")
+    func wrongTypedAttributeValue() {
+        let resource = #"{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]}"#
+        let good = #"{"attributes":[{"key":"limit.id","value":{"stringValue":"codex:10080"}},{"key":"limit.name","value":{"stringValue":"Weekly"}}],"timeUnixNano":"1791791100000000000","asDouble":10}"#
+        let bad = #"{"attributes":[{"key":"limit.id","value":{"stringValue":"codex:300"}},{"key":"limit.name","value":{"stringValue":"Session"}},{"key":"model.id","value":{"stringValue":7}}],"timeUnixNano":"1791791100000000000","asDouble":20}"#
+        let line = #"{"resourceMetrics":[{"resource":\#(resource),"scopeMetrics":[{"metrics":[{"name":"bar.limit.utilization","gauge":{"dataPoints":[\#(good),\#(bad)]}}]}]}]}"# + "\n"
+
+        let result = MetricsParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.limitSamples.map(\.limit.id) == ["codex:10080"])
+        #expect(result.droppedRecords == 1)
+    }
+
+    @Test("A token Sum whose data points aren't a list is dropped and counted")
+    func wrongTypedDataPoints() {
+        let line = Data((#"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"bar.tokens","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":"none"}}]}]}]}"# + "\n").utf8)
+
+        let result = MetricsParser.parse(line, from: .codexBar)
+
+        #expect(result.tokenSamples.isEmpty)
+        #expect(result.droppedRecords == 1)
     }
 
     @Test("Metrics the spec doesn't ask Bar UI to read are skipped without counting as non-conforming")
@@ -106,7 +129,7 @@ struct MetricsParserTests {
 
         let result = MetricsParser.parse(line, from: .codexBar)
 
-        #expect(result.samples.isEmpty)
+        #expect(result.limitSamples.isEmpty)
         #expect(result.droppedRecords == 0)
     }
 }

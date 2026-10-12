@@ -27,7 +27,7 @@ struct BackgroundImporterTests {
             let archive = try Archive(url: storage.archiveURL)
             return BackgroundImporter(
                 monitor: BarAppMonitor(detector: mac.detector()),
-                overview: LimitsOverview(archive: archive),
+                importer: TelemetryImporter(archive: archive),
                 pollInterval: pollInterval
             )
         }

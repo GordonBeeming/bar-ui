@@ -8,6 +8,8 @@ import Observation
 @Observable
 public final class LimitsOverview {
     public private(set) var limits: [CurrentLimit] = []
+    /// The token points of the range read, plus each counter's baseline
+    /// just before it. Never the whole Archive unless All time is shown.
     public private(set) var tokenSamples: [TokenSample] = []
     private var availableNow: [AvailablePerk] = []
     private var goneEver: [GonePerk] = []
@@ -31,6 +33,11 @@ public final class LimitsOverview {
     private var requestedPasses = 0
     private var finishedPasses = 0
     private var runningPass: Task<Void, Never>?
+    /// The range each view on screen shows. The Archive keeps everything
+    /// forever, so a pass reads back only as far as the longest of these.
+    private var shownRanges: [UUID: TimeRange] = [:]
+    /// How far back the last pass read; nil before the first.
+    private var readRange: TimeRange?
 
     public init(archive: Archive, now: @escaping @MainActor () -> Date = { Date() }) {
         self.archive = archive
@@ -51,7 +58,9 @@ public final class LimitsOverview {
         LimitCard.cards(for: limits, states: states, now: now)
     }
 
-    public func tokenUsage(range: TokenRange, now: Date, calendar: Calendar = .current) -> TokenUsage {
+    /// Usage for a range no longer than the ones being shown (see `show`);
+    /// a longer one would only count what was read.
+    public func tokenUsage(range: TimeRange, now: Date, calendar: Calendar = .current) -> TokenUsage {
         TokenUsage(samples: tokenSamples, range: range, now: now, calendar: calendar)
     }
 
@@ -64,8 +73,32 @@ public final class LimitsOverview {
     }
 
     /// The Events list for a range, newest first, from every Bar App.
-    public func events(range: TokenRange, now: Date) -> [OverviewEvent] {
+    public func events(range: TimeRange, now: Date) -> [OverviewEvent] {
         OverviewEvent.within(allEvents, range: range, now: now)
+    }
+
+    /// Says a view is showing `range`, so refreshes read the Archive back
+    /// that far. Reads again straight away when the range reaches further
+    /// than the last pass did.
+    public func show(_ range: TimeRange, by viewer: UUID) async {
+        shownRanges[viewer] = range
+        if let readRange, readRange.reaches(atLeastAsFarAs: range) {
+            return
+        }
+        await refresh(statuses: latestStatuses)
+    }
+
+    /// The view has gone, so later passes needn't read as far for it.
+    public func stopShowing(by viewer: UUID) {
+        shownRanges[viewer] = nil
+    }
+
+    /// The Menu Bar Preview always shows the last day, so at least that much
+    /// is read even with no window open.
+    private var rangeToRead: TimeRange {
+        shownRanges.values.reduce(TimeRange.day) { longest, range in
+            longest.reaches(atLeastAsFarAs: range) ? longest : range
+        }
     }
 
     /// Imports what's new and reloads the Overview. Returns once a pass that
@@ -127,8 +160,11 @@ public final class LimitsOverview {
         } catch {
             problems.append(error.localizedDescription)
         }
+        let range = rangeToRead
+        let since = range.start(now: now())
+        readRange = range
         do {
-            tokenSamples = try await archive.tokenSamples()
+            tokenSamples = try await archive.tokenSamples(since: since)
         } catch {
             problems.append(error.localizedDescription)
         }
@@ -136,14 +172,14 @@ public final class LimitsOverview {
         do {
             var histories: [LimitHistory] = []
             for app in BarApp.allCases {
-                histories += try await archive.limitHistories(of: app, since: nil)
+                histories += try await archive.limitHistories(of: app, since: since)
             }
             allEvents = OverviewEvent.timeline(
                 histories: histories,
-                limitEvents: try await archive.limitLifecycleEvents(),
-                trackingStarts: try await archive.trackingStarts(),
-                perkAvailable: try await archive.perkAvailableEvents(),
-                gonePerks: goneEver
+                limitEvents: try await archive.limitLifecycleEvents(since: since),
+                trackingStarts: try await archive.trackingStarts(since: since),
+                perkAvailable: try await archive.perkAvailableEvents(since: since),
+                gonePerks: goneEver.filter { perk in since.map { perk.goneAt >= $0 } ?? true }
             )
         } catch {
             problems.append(error.localizedDescription)

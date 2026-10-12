@@ -29,7 +29,7 @@ struct OverviewEventsRangeTests {
             event(at: Self.nowNano + Self.hour)
         ]
 
-        func count(_ range: TokenRange) -> Int {
+        func count(_ range: TimeRange) -> Int {
             OverviewEvent.within(events, range: range, now: Self.now).count
         }
 
@@ -64,7 +64,8 @@ struct OverviewEventsRangeTests {
             LifecycleEventLine.logs(service: "codexbar", events: [.tracking(minutes: 10, time: recent + Self.hour)]),
             named: "codexbar-logs-2026-10-12.jsonl", in: fixture.codexFolder
         )
-        let overview = LimitsOverview(archive: fixture.archive)
+        let overview = LimitsOverview(archive: fixture.archive, now: { Self.now })
+        await overview.show(.month, by: UUID())
 
         await overview.refresh(statuses: [
             .claudeBar: Self.status(.tracking, folder: fixture.claudeFolder),

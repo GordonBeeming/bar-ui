@@ -12,7 +12,7 @@ struct LimitHistorySection: View {
     let app: BarApp
     let model: LimitHistoryModel
 
-    @State private var range: HistoryRange = .week
+    @State private var range: TimeRange = .week
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -21,8 +21,8 @@ struct LimitHistorySection: View {
                     .font(.title3.weight(.semibold))
                 Spacer()
                 Picker("Range", selection: $range) {
-                    ForEach(HistoryRange.allCases) { range in
-                        Text(range.title).tag(range)
+                    ForEach(TimeRange.allCases) { range in
+                        Text(range.label).tag(range)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -66,7 +66,7 @@ struct LimitHistorySection: View {
 private struct LimitHistoryRowView: View {
     let row: LimitHistoryRow
     let brand: Color
-    let range: HistoryRange
+    let range: TimeRange
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -80,11 +80,11 @@ private struct LimitHistoryRowView: View {
                 }
                 Spacer()
                 stat(
-                    row.percentUsedNow.map { "\($0)%" } ?? "No samples",
+                    row.percentUsedNow.map(DisplayFormat.points) ?? "No samples",
                     caption: row.latestSampleAt.map { "used, as of \($0.formatted(Self.sampleFormat))" } ?? "used"
                 )
-                stat(row.unusedAtLastReset.map(Self.percent) ?? "None yet", caption: "unused at last reset")
-                stat(row.averageUnusedAtReset.map(Self.percent) ?? "None yet", caption: "average unused at reset")
+                stat(row.unusedAtLastReset.map(DisplayFormat.points) ?? "None yet", caption: "unused at last reset")
+                stat(row.averageUnusedAtReset.map(DisplayFormat.points) ?? "None yet", caption: "average unused at reset")
             }
 
             chart
@@ -102,10 +102,6 @@ private struct LimitHistoryRowView: View {
     }
 
     private static let sampleFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
-
-    private static func percent(_ value: Double) -> String {
-        "\(Int(value.rounded()))%"
-    }
 
     private func stat(_ value: String, caption: String) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
@@ -155,11 +151,11 @@ private struct LimitHistoryRowView: View {
                 AxisGridLine()
                 AxisValueLabel {
                     if let percent = value.as(Int.self) {
-                        Text("\(percent)%")
+                        Text(DisplayFormat.points(percent))
                     }
                 }
             }
         }
-        .accessibilityLabel("\(row.name) used over \(range.title.lowercased()), \(row.resetMarkers.count) resets")
+        .accessibilityLabel("\(row.name) used over the \(range.label) range, \(row.resetMarkers.count) resets")
     }
 }

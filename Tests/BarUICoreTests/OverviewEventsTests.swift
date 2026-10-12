@@ -108,14 +108,33 @@ struct OverviewEventsTests {
         #expect(Set(events.map(\.id)).count == 3)
     }
 
-    @Test("A Limit crossing into running low or near limit is an event, once per crossing")
-    func crossings() {
+    @Test("A Limit hovering on a threshold is running low once, not every time it dips back under")
+    func flappingIsOneEvent() {
+        let events = timeline(histories: [history(utilization: [74.9, 75.1, 74.8, 75.2])])
+
+        #expect(events.map(\.kind) == [.runningLow])
+        #expect(events.map(\.date) == [Date(unixNano: Self.t0 + Self.minute)])
+    }
+
+    @Test("After a reset the new Window starts from normal, so climbing again is a new event")
+    func resetStartsANewWindow() {
+        let resetAt = Self.t0 + Self.minute + Self.minute / 2
+        let reset = LimitReset(app: .claudeBar, limit: session, timeUnixNano: resetAt, utilizationLast: 85, nextResetsAt: nil)
+
+        let events = timeline(histories: [history(utilization: [70, 85, 80], resets: [reset])])
+
+        #expect(events.map(\.kind) == [.runningLow, .limitReset, .runningLow])
+        #expect(events.map(\.date) == [Self.t0 + 2 * Self.minute, resetAt, Self.t0 + Self.minute].map { Date(unixNano: $0) })
+    }
+
+    @Test("Within one Window a Limit is near limit at most once, even after falling back")
+    func onceEachPerWindow() {
         let events = timeline(histories: [history(utilization: [40, 76, 80, 91, 95, 20, 91])])
 
-        #expect(events.map(\.kind) == [.nearLimit, .nearLimit, .runningLow])
-        #expect(events.map(\.title) == ["Session (5h) near limit", "Session (5h) near limit", "Session (5h) running low"])
-        #expect(events.map(\.detail) == ["Reached 91% used", "Reached 91% used", "Reached 76% used"])
-        #expect(events.map(\.date) == [6, 3, 1].map { Date(unixNano: Self.t0 + $0 * Self.minute) })
+        #expect(events.map(\.kind) == [.nearLimit, .runningLow])
+        #expect(events.map(\.title) == ["Session (5h) near limit", "Session (5h) running low"])
+        #expect(events.map(\.detail) == ["Reached 91% used", "Reached 76% used"])
+        #expect(events.map(\.date) == [3, 1].map { Date(unixNano: Self.t0 + $0 * Self.minute) })
     }
 
     @Test("A Limit whose first sample is already high has no crossing to report")

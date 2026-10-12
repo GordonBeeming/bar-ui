@@ -39,26 +39,23 @@ struct LifecycleEventArchiveTests {
         #expect(perks.first?.expiresAt == 1_792_000_000)
     }
 
-    @Test("An Archive from before these events were stored reads its logs files again, and nothing is stored twice")
-    func olderArchiveReimportsLogs() async throws {
+    @Test("Opening a version 1 Archive again keeps its logs files' read positions and skipped-record counts")
+    func reopeningKeepsLogsProgress() async throws {
         let fixture = try ImportFixture()
-        try writeEvents(to: fixture)
-        try fixture.copyFixture("claudebar-metrics-2026-10-12.jsonl", to: fixture.claudeFolder)
+        var logs = LifecycleEventLine.logs(service: "claudebar", events: [.tracking(minutes: 5, time: t0)])
+        logs.append(Data("not a Telemetry line\n".utf8))
+        try fixture.write(logs, named: "claudebar-logs-2026-10-12.jsonl", in: fixture.claudeFolder)
         _ = try await fixture.importer.importMetrics(of: .claudeBar, from: fixture.claudeFolder)
+        let before = try await fixture.archive.progress(of: .claudeBar, fileName: "claudebar-logs-2026-10-12.jsonl")
         try markArchiveAsVersion(1, at: fixture.archiveURL)
 
         let reopened = try Archive(url: fixture.archiveURL)
-        let importer = TelemetryImporter(archive: reopened)
-        let logsProgress = try await reopened.progress(of: .claudeBar, fileName: "claudebar-logs-2026-10-12.jsonl")
-        let metricsProgress = try await reopened.progress(of: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl")
-        let again = try await importer.importMetrics(of: .claudeBar, from: fixture.claudeFolder)
 
-        #expect(logsProgress == nil)
-        #expect(metricsProgress != nil)
-        #expect(again.filesRead == 1)
-        #expect(try await reopened.trackingStarts().count == 1)
-        #expect(try await reopened.limitLifecycleEvents().count == 2)
-        #expect(try await reopened.perkAvailableEvents().count == 1)
+        let after = try await reopened.progress(of: .claudeBar, fileName: "claudebar-logs-2026-10-12.jsonl")
+        #expect(before?.droppedRecords == 1)
+        #expect(after == before)
+        #expect(try await reopened.skippedRecords(of: .claudeBar).map(\.count) == [1])
+        #expect(try await TelemetryImporter(archive: reopened).importMetrics(of: .claudeBar, from: fixture.claudeFolder).filesRead == 0)
     }
 
     @Test("An Archive already at the current version keeps its progress")

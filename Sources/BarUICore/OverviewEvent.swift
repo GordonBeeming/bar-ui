@@ -109,21 +109,38 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
 
     /// The events inside the range, nothing from the future (a Bar App with a
     /// wrong clock) and nothing older than the range reaches back.
-    public static func within(_ events: [OverviewEvent], range: TokenRange, now: Date) -> [OverviewEvent] {
+    public static func within(_ events: [OverviewEvent], range: TimeRange, now: Date) -> [OverviewEvent] {
         let start = range.start(now: now)
         return events.filter { event in event.date <= now && start.map { event.date > $0 } != false }
     }
 
+    /// Each Window says running low and near limit at most once, the first
+    /// time the Limit gets there, so a Limit hovering on a threshold doesn't
+    /// fill the list. A reset starts a new Window from normal. The Limit's
+    /// first sample ever has nothing before it, so how it got there is
+    /// unknown and it never counts as a crossing.
     private static func crossings(in history: LimitHistory) -> [OverviewEvent] {
         var events: [OverviewEvent] = []
-        var previous: LimitCard.Severity?
+        let resets = history.resets.map(\.timeUnixNano).sorted()
+        var nextReset = resets.startIndex
+        // The worst the current Window has been; nil until the Limit has a sample.
+        var reached = history.peakBeforeRange.map(LimitCard.Severity.init(utilization:))
         for sample in history.utilization.sorted(by: { $0.timeUnixNano < $1.timeUnixNano }) {
+            while nextReset < resets.endIndex, resets[nextReset] <= sample.timeUnixNano {
+                if reached != nil {
+                    reached = .normal
+                }
+                nextReset += 1
+            }
             let severity = LimitCard.Severity(utilization: sample.value)
-            defer { previous = severity }
-            // The first sample has nothing before it, so how it got there is unknown.
-            guard let previous, severity.rank > previous.rank else {
+            guard let previous = reached else {
+                reached = severity
                 continue
             }
+            guard severity.rank > previous.rank else {
+                continue
+            }
+            reached = severity
             let kind: Kind = severity == .nearLimit ? .nearLimit : .runningLow
             events.append(OverviewEvent(
                 id: "\(kind)/\(history.app.rawValue)/\(history.limit.id)/\(sample.timeUnixNano)",

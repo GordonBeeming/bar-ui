@@ -1,26 +1,29 @@
 import Foundation
+import os
 
 /// Keeps the Archive filling with no window open, which is all the login item
-/// does. It goes through the same LimitsOverview refresh as the window, so
-/// every line still reaches the Archive through TelemetryImporter and its
-/// read-position guard; running next to an open Bar UI can't count a line twice.
+/// does. It only imports: every line reaches the Archive through
+/// TelemetryImporter and its read-position guard, so running next to an open
+/// Bar UI can't count a line twice, and nothing is read back out.
 @MainActor
 public final class BackgroundImporter {
+    private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "BackgroundImporter")
+
     private let monitor: BarAppMonitor
-    private let overview: LimitsOverview
+    private let importer: TelemetryImporter
     private let pollInterval: Duration
 
     /// `pollInterval` is both the backstop for changes folder watching can't
     /// see and how often the watch is re-pointed at the current folders.
-    public init(monitor: BarAppMonitor, overview: LimitsOverview, pollInterval: Duration = .seconds(15)) {
+    public init(monitor: BarAppMonitor, importer: TelemetryImporter, pollInterval: Duration = .seconds(15)) {
         self.monitor = monitor
-        self.overview = overview
+        self.importer = importer
         self.pollInterval = pollInterval
     }
 
     public func runOnce() async {
         monitor.refresh()
-        await overview.refresh(statuses: monitor.statuses)
+        await importAll()
     }
 
     /// Imports until cancelled: once per round, then again on every change
@@ -33,6 +36,23 @@ public final class BackgroundImporter {
         }
     }
 
+    private func importAll() async {
+        let folders = LimitsOverview.telemetryFolders(in: monitor.statuses)
+        for app in BarApp.allCases {
+            guard let folder = folders[app] else {
+                continue
+            }
+            do {
+                // The importer logs each file it can't read, and the next pass
+                // tries those again from the Archive's position.
+                _ = try await importer.importMetrics(of: app, from: folder)
+            } catch {
+                // No window to show it in; the next pass tries again.
+                Self.logger.error("Can't import \(app.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     private func waitOneRound(watching folders: [URL]) async {
         guard !folders.isEmpty else {
             await sleepOneRound()
@@ -40,7 +60,7 @@ public final class BackgroundImporter {
         }
         let watch = Task {
             for await _ in TelemetryFolderWatcher.changes(in: folders) {
-                await overview.refresh(statuses: monitor.statuses)
+                await importAll()
             }
         }
         await sleepOneRound()

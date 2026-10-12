@@ -16,7 +16,7 @@ struct PerkMetricsParsingTests {
         let result = MetricsParser.parse(data, from: .claudeBar)
 
         #expect(result.droppedRecords == 0)
-        #expect(result.samples.isEmpty)
+        #expect(result.limitSamples.isEmpty)
         let reset = try #require(result.perkSamples.first { $0.kind == .resetCredit })
         #expect(reset.app == .claudeBar)
         #expect(reset.currency == nil)

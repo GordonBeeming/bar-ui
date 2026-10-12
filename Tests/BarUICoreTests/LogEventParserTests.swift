@@ -60,6 +60,30 @@ struct LogEventParserTests {
         #expect(result.resets.first?.limit.windowDurationMinutes == nil)
     }
 
+    @Test("An event whose name isn't a string breaks the spec, so it is dropped and counted rather than skipped as unknown")
+    func wrongTypedEventName() {
+        let line = Self.line(attributes: Self.limit + [Self.utilizationLast(10)])
+            .replacingOccurrences(of: #""eventName":"bar.limit.reset""#, with: #""eventName":42"#)
+
+        let result = LogEventParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.resets.isEmpty)
+        #expect(result.droppedRecords == 1)
+    }
+
+    @Test("A reset with an optional attribute of the wrong type is dropped and counted, not read as if it were absent")
+    func wrongTypedOptionalAttribute() {
+        let line = Self.line(attributes: Self.limit + [
+            Self.utilizationLast(10),
+            #"{"key":"model.id","value":{"stringValue":7}}"#
+        ])
+
+        let result = LogEventParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.resets.isEmpty)
+        #expect(result.droppedRecords == 1)
+    }
+
     @Test("Another Bar App's records are dropped")
     func wrongResource() throws {
         let data = try Fixtures.data(named: "claudebar-logs-2026-10-12.jsonl")

@@ -28,7 +28,7 @@ struct TokenUsageTests {
         TokenSample(app: app, model: model, tokenType: type, startTimeUnixNano: start, timeUnixNano: nowNano - agoHours * hour, count: count)
     }
 
-    private static func usage(_ samples: [TokenSample], _ range: TokenRange) -> TokenUsage {
+    private static func usage(_ samples: [TokenSample], _ range: TimeRange) -> TokenUsage {
         TokenUsage(samples: samples, range: range, now: now, calendar: calendar)
     }
 
@@ -186,7 +186,7 @@ struct TokenUsageTests {
         let samples = try await fixture.archive.tokenSamples()
         let fixtureNow = Date(timeIntervalSince1970: 1_791_791_400 + 60)
 
-        for range in TokenRange.allCases {
+        for range in TimeRange.allCases {
             let usage = TokenUsage(samples: samples, range: range, now: fixtureNow, calendar: Self.calendar)
 
             #expect(usage.totalByApp == [.claudeBar: 575_292, .codexBar: 59_896])

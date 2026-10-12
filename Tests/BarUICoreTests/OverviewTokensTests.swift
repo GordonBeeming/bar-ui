@@ -11,6 +11,7 @@ struct OverviewTokensTests {
         try fixture.copyFixture("claudebar-metrics-2026-10-12.jsonl", to: fixture.claudeFolder)
         try fixture.copyFixture("codexbar-metrics-2026-10-12.jsonl", to: fixture.codexFolder)
         let overview = LimitsOverview(archive: fixture.archive)
+        await overview.show(.all, by: UUID())
         let folder = { (url: URL) in
             BarAppStatus(state: .tracking, settings: TrackingSettings(enabled: true, intervalMinutes: 5, retentionDays: 90, folder: url))
         }

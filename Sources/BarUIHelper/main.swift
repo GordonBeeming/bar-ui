@@ -14,7 +14,7 @@ do {
         preferences: SystemPreferences(),
         homeDirectory: FileManager.default.homeDirectoryForCurrentUser
     ))
-    let importer = BackgroundImporter(monitor: monitor, overview: LimitsOverview(archive: archive))
+    let importer = BackgroundImporter(monitor: monitor, importer: TelemetryImporter(archive: archive))
     Task {
         await importer.run()
     }

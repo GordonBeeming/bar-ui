@@ -18,23 +18,12 @@ public struct LimitReset: Sendable, Hashable {
     }
 }
 
-public struct LogParseResult: Sendable, Equatable {
-    public let resets: [LimitReset]
-    public let perkGoneEvents: [PerkGoneEvent]
-    public let limitEvents: [LimitLifecycleEvent]
-    public let trackingStarts: [TrackingStartedEvent]
-    public let perkAvailableEvents: [PerkAvailableEvent]
-    /// Lines, resources and `bar.limit.reset` and `bar.perk.*` events that broke the Telemetry
-    /// Spec and were dropped. Events the Dashboard doesn't read aren't counted.
-    public let droppedRecords: Int
-    /// How far into the data the complete, `\n`-terminated lines reach.
-    public let consumedByteCount: Int
-}
-
-/// Reads `bar.limit.reset` events out of a Bar App's OTLP/JSON logs lines,
-/// following Telemetry Spec v1.
+/// Reads the events the Dashboard stores out of a Bar App's OTLP/JSON logs
+/// lines, following Telemetry Spec v1: Limit resets, Limits appearing and
+/// disappearing, Tracking starting, and Perks becoming available or going.
+/// One of those that breaks the spec is dropped and counted; any other event
+/// is skipped without being counted.
 public enum LogEventParser {
-    private static let newline = UInt8(ascii: "\n")
     private static let resetEventName = "bar.limit.reset"
     private static let perkAvailableEventName = "bar.perk.available"
     private static let perkGoneEventName = "bar.perk.gone"
@@ -42,83 +31,79 @@ public enum LogEventParser {
     private static let limitDisappearedEventName = "bar.limit.disappeared"
     private static let trackingStartedEventName = "bar.tracking.started"
 
-    public static func parse(_ data: Data, from app: BarApp) -> LogParseResult {
-        guard let lastNewline = data.lastIndex(of: newline) else {
-            return LogParseResult(resets: [], perkGoneEvents: [], limitEvents: [], trackingStarts: [], perkAvailableEvents: [], droppedRecords: 0, consumedByteCount: 0)
-        }
-        let complete = data[data.startIndex..<lastNewline]
-        let decoder = JSONDecoder()
-        var resets: [LimitReset] = []
-        var perkGone: [PerkGoneEvent] = []
-        var perkAvailable: [PerkAvailableEvent] = []
-        var limitEvents: [LimitLifecycleEvent] = []
-        var trackingStarts: [TrackingStartedEvent] = []
+    public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
+        var records = TelemetryRecords()
         var dropped = 0
-
-        for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
-            guard let request = try? decoder.decode(ExportLogsServiceRequest.self, from: Data(line)) else {
-                dropped += 1
-                continue
-            }
+        let lines = OTLPLines.forEachRequest(in: data, as: ExportLogsServiceRequest.self) { request in
             for resourceLogs in request.resourceLogs ?? [] {
-                let resource = resourceLogs.resource?.attributes ?? []
-                guard resource.string("bar.spec.version") == "1",
-                      resource.string("service.name") == app.serviceName else {
+                guard OTLPLines.isConforming(resource: resourceLogs.resource?.attributes ?? [], of: app) else {
                     dropped += 1
                     continue
                 }
                 for scope in resourceLogs.scopeLogs ?? [] {
                     for record in scope.logRecords ?? [] {
-                        switch record.eventName {
-                        case resetEventName:
-                            if let reset = reset(from: record, app: app) {
-                                resets.append(reset)
-                            } else {
-                                dropped += 1
-                            }
-                        case perkAvailableEventName, perkGoneEventName:
-                            if let event = perkEvent(from: record, app: app) {
-                                if record.eventName == perkGoneEventName {
-                                    perkGone.append(event)
-                                } else {
-                                    perkAvailable.append(PerkAvailableEvent(gone: event))
-                                }
-                            } else {
-                                dropped += 1
-                            }
-                        case limitAppearedEventName, limitDisappearedEventName:
-                            if let event = limitEvent(from: record, app: app) {
-                                limitEvents.append(event)
-                            } else {
-                                dropped += 1
-                            }
-                        case trackingStartedEventName:
-                            if let event = trackingStarted(from: record, app: app) {
-                                trackingStarts.append(event)
-                            } else {
-                                dropped += 1
-                            }
-                        default:
-                            break
-                        }
+                        read(record, from: app, into: &records, dropped: &dropped)
                     }
                 }
             }
         }
+        return TelemetryParseResult(records: records, droppedRecords: dropped + lines.undecodableLines, consumedByteCount: lines.consumedByteCount)
+    }
 
-        return LogParseResult(
-            resets: resets,
-            perkGoneEvents: perkGone,
-            limitEvents: limitEvents,
-            trackingStarts: trackingStarts,
-            perkAvailableEvents: perkAvailable,
-            droppedRecords: dropped,
-            consumedByteCount: lastNewline - data.startIndex + 1
-        )
+    private static let readEventNames: Set = [
+        resetEventName, perkAvailableEventName, perkGoneEventName,
+        limitAppearedEventName, limitDisappearedEventName, trackingStartedEventName
+    ]
+
+    private static func read(_ record: LogRecord, from app: BarApp, into records: inout TelemetryRecords, dropped: inout Int) {
+        if record.isEventNameMalformed {
+            // It may be one of the events read here; it breaks the spec either way.
+            dropped += 1
+            return
+        }
+        guard let name = record.eventName, readEventNames.contains(name) else {
+            return
+        }
+        guard !record.isMalformed else {
+            dropped += 1
+            return
+        }
+        switch name {
+        case resetEventName:
+            if let reset = reset(from: record, app: app) {
+                records.resets.append(reset)
+            } else {
+                dropped += 1
+            }
+        case perkAvailableEventName, perkGoneEventName:
+            if let event = perkEvent(from: record, app: app) {
+                if record.eventName == perkGoneEventName {
+                    records.perkGoneEvents.append(event)
+                } else {
+                    records.perkAvailableEvents.append(PerkAvailableEvent(gone: event))
+                }
+            } else {
+                dropped += 1
+            }
+        case limitAppearedEventName, limitDisappearedEventName:
+            if let event = limitEvent(from: record, app: app) {
+                records.limitEvents.append(event)
+            } else {
+                dropped += 1
+            }
+        case trackingStartedEventName:
+            if let event = trackingStarted(from: record, app: app) {
+                records.trackingStarts.append(event)
+            } else {
+                dropped += 1
+            }
+        default:
+            break
+        }
     }
 
     private static func limitEvent(from record: LogRecord, app: BarApp) -> LimitLifecycleEvent? {
-        guard let limit = MetricsParser.limitDescriptor(from: record.attributes ?? []),
+        guard let limit = OTLPLines.limitDescriptor(from: record.attributes ?? []),
               let time = record.timeUnixNano, time > 0 else {
             return nil
         }
@@ -177,7 +162,7 @@ public enum LogEventParser {
 
     private static func reset(from record: LogRecord, app: BarApp) -> LimitReset? {
         let attributes = record.attributes ?? []
-        guard let limit = MetricsParser.limitDescriptor(from: attributes),
+        guard let limit = OTLPLines.limitDescriptor(from: attributes),
               let time = record.timeUnixNano, time > 0,
               let last = attributes.attribute("limit.utilization.last")?.doubleValue,
               (0...100).contains(last) else {
@@ -220,6 +205,11 @@ private struct LogRecord: Decodable {
     let eventName: String?
     let timeUnixNano: Int64?
     let attributes: [KeyValue]?
+    /// The event name was present but not a string, so which event this is
+    /// can't be told.
+    let isEventNameMalformed: Bool
+    /// Some field, or an attribute's value, was present but of the wrong type.
+    let isMalformed: Bool
 
     private enum CodingKeys: String, CodingKey {
         case eventName, timeUnixNano, attributes
@@ -227,8 +217,12 @@ private struct LogRecord: Decodable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        eventName = try? container.decodeIfPresent(String.self, forKey: .eventName)
-        timeUnixNano = (try? container.decodeIfPresent(OTLPInt.self, forKey: .timeUnixNano))?.value
-        attributes = try? container.decodeIfPresent([KeyValue].self, forKey: .attributes)
+        var nameMalformed = false
+        var malformed = false
+        eventName = container.decodeLeniently(String.self, forKey: .eventName, malformed: &nameMalformed)
+        timeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .timeUnixNano, malformed: &malformed)?.value
+        attributes = container.decodeLeniently([KeyValue].self, forKey: .attributes, malformed: &malformed)
+        isEventNameMalformed = nameMalformed
+        isMalformed = nameMalformed || malformed || attributes?.isMalformed == true
     }
 }

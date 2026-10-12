@@ -1,45 +1,5 @@
 import Foundation
 
-/// The period the Overview's token chart and tiles cover.
-public enum TokenRange: String, CaseIterable, Identifiable, Sendable {
-    case day
-    case week
-    case month
-    case all
-
-    public var id: String { rawValue }
-
-    public var label: String {
-        switch self {
-        case .day: "24h"
-        case .week: "7d"
-        case .month: "30d"
-        case .all: "All time"
-        }
-    }
-
-    /// How far back the range reaches. Nil for All time, which reaches back to
-    /// the oldest data in the Archive.
-    fileprivate var span: TimeInterval? {
-        switch self {
-        case .day: 24 * 3_600
-        case .week: 7 * 24 * 3_600
-        case .month: 30 * 24 * 3_600
-        case .all: nil
-        }
-    }
-
-    /// When the range begins, counting back from `now`. Nil for All time.
-    public func start(now: Date) -> Date? {
-        span.map { now.addingTimeInterval(-$0) }
-    }
-
-    /// A day of data is too few points at daily resolution to show a shape.
-    fileprivate var bucketComponent: Calendar.Component {
-        self == .day ? .hour : .day
-    }
-}
-
 /// Token usage over one range, worked out from the Archive's cumulative
 /// counters.
 public struct TokenUsage: Sendable, Equatable {
@@ -81,22 +41,22 @@ public struct TokenUsage: Sendable, Equatable {
         input > 0 ? min(Double(cacheRead) / Double(input), 1) : nil
     }
 
-    public init(samples: [TokenSample], range: TokenRange, now: Date, calendar: Calendar = .current) {
+    public init(samples: [TokenSample], range: TimeRange, now: Date, calendar: Calendar = .current) {
         self.init(
             samples: samples,
-            windowStart: range.start(now: now),
+            rangeStart: range.start(now: now),
             bucketComponent: range.bucketComponent,
             now: now,
             calendar: calendar
         )
     }
 
-    /// For periods that aren't a `TokenRange`, such as the last hour.
-    init(samples: [TokenSample], windowStart: Date?, bucketComponent: Calendar.Component, now: Date, calendar: Calendar) {
+    /// For periods that aren't a `TimeRange`, such as the last hour.
+    init(samples: [TokenSample], rangeStart: Date?, bucketComponent: Calendar.Component, now: Date, calendar: Calendar) {
         let increases = Self.increases(in: samples)
             .filter { increase in
                 let time = Date(unixNano: increase.timeUnixNano)
-                return time <= now && windowStart.map { time > $0 } != false
+                return time <= now && rangeStart.map { time > $0 } != false
             }
 
         var totalByApp: [BarApp: Int64] = [:]
@@ -136,7 +96,7 @@ public struct TokenUsage: Sendable, Equatable {
         self.cacheRead = cacheRead
         self.tokensByModel = tokensByModel
         self.tokensByAppAndModel = tokensByAppAndModel
-        self.buckets = Self.filledBuckets(byBucket, windowStart: windowStart, now: now, component: bucketComponent, calendar: calendar)
+        self.buckets = Self.filledBuckets(byBucket, rangeStart: rangeStart, now: now, component: bucketComponent, calendar: calendar)
     }
 
     // MARK: - Counters to increases
@@ -187,12 +147,12 @@ public struct TokenUsage: Sendable, Equatable {
 
     private static func filledBuckets(
         _ byBucket: [Date: [BarApp: Int64]],
-        windowStart: Date?,
+        rangeStart: Date?,
         now: Date,
         component: Calendar.Component,
         calendar: Calendar
     ) -> [Bucket] {
-        guard let first = windowStart.flatMap({ calendar.dateInterval(of: component, for: $0)?.start }) ?? byBucket.keys.min(),
+        guard let first = rangeStart.flatMap({ calendar.dateInterval(of: component, for: $0)?.start }) ?? byBucket.keys.min(),
               let last = calendar.dateInterval(of: component, for: now)?.start else {
             return []
         }

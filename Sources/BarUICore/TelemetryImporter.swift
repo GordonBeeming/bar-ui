@@ -13,7 +13,7 @@ public struct ImportSummary: Sendable, Equatable {
     public init() {}
 }
 
-/// Copies new Limit samples and reset events from a Bar App's metrics and logs files into the Archive.
+/// Copies new Telemetry records from a Bar App's metrics and logs files into the Archive.
 /// It only reads the Telemetry Folder: no locks, nothing written there.
 public struct TelemetryImporter: Sendable {
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "TelemetryImporter")
@@ -86,55 +86,19 @@ public struct TelemetryImporter: Sendable {
         try handle.seek(toOffset: UInt64(offset))
         let data = try handle.readToEnd() ?? Data()
 
-        let samples: [LimitSample]
-        let tokenSamples: [TokenSample]
-        let resets: [LimitReset]
-        let perkSamples: [PerkSample]
-        let perkGoneEvents: [PerkGoneEvent]
-        var limitEvents: [LimitLifecycleEvent] = []
-        var trackingStarts: [TrackingStartedEvent] = []
-        var perkAvailableEvents: [PerkAvailableEvent] = []
-        let consumed: Int
-        let dropped: Int
-        if app.isLogsFileName(name) {
-            let result = LogEventParser.parse(data, from: app)
-            samples = []
-            tokenSamples = []
-            resets = result.resets
-            perkSamples = []
-            perkGoneEvents = result.perkGoneEvents
-            limitEvents = result.limitEvents
-            trackingStarts = result.trackingStarts
-            perkAvailableEvents = result.perkAvailableEvents
-            consumed = result.consumedByteCount
-            dropped = result.droppedRecords
-        } else {
-            let result = MetricsParser.parse(data, from: app)
-            samples = result.samples
-            tokenSamples = result.tokenSamples
-            resets = []
-            perkSamples = result.perkSamples
-            perkGoneEvents = []
-            consumed = result.consumedByteCount
-            dropped = result.droppedRecords
-        }
-        guard consumed > 0 || previous == nil || offset != previous?.byteOffset else {
+        let result = app.isLogsFileName(name)
+            ? LogEventParser.parse(data, from: app)
+            : MetricsParser.parse(data, from: app)
+        guard result.consumedByteCount > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
         let recorded = try await archive.record(
-            samples,
-            tokenSamples: tokenSamples,
-            resets: resets,
-            perkSamples: perkSamples,
-            perkGoneEvents: perkGoneEvents,
-            limitEvents: limitEvents,
-            trackingStarts: trackingStarts,
-            perkAvailableEvents: perkAvailableEvents,
+            result.records,
             progress: ImportProgress(
                 app: app,
                 fileName: name,
-                byteOffset: offset + Int64(consumed),
-                droppedRecords: droppedSoFar + dropped
+                byteOffset: offset + Int64(result.consumedByteCount),
+                droppedRecords: droppedSoFar + result.droppedRecords
             ),
             readFrom: previous
         )
@@ -144,7 +108,7 @@ public struct TelemetryImporter: Sendable {
             // carries on from its position.
             return nil
         }
-        return (samples.count, resets.count, dropped)
+        return (result.limitSamples.count, result.resets.count, result.droppedRecords)
     }
 }
 

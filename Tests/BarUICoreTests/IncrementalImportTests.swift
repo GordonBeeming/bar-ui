@@ -89,12 +89,12 @@ struct IncrementalImportTests {
         let weekly = LimitDescriptor(id: "codex:10080", name: "Weekly", windowDurationMinutes: nil, modelID: nil)
         let sample = LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)
         let start = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 100, droppedRecords: 1)
-        try await archive.record([], progress: start)
+        try await archive.record(TelemetryRecords(), progress: start)
         let advanced = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 200, droppedRecords: 2)
 
-        let winner = try await archive.record([sample], progress: advanced, readFrom: start)
-        let loser = try await archive.record([sample], progress: advanced, readFrom: start)
-        let fresh = try await archive.record([], progress: start, readFrom: nil)
+        let winner = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start)
+        let loser = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start)
+        let fresh = try await archive.record(TelemetryRecords(), progress: start, readFrom: nil)
 
         #expect(winner)
         #expect(!loser)
@@ -109,14 +109,16 @@ struct IncrementalImportTests {
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let weekly = LimitDescriptor(id: "codex:10080", name: "Weekly", windowDurationMinutes: nil, modelID: nil)
         let start = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 100, droppedRecords: 0)
-        try await archive.record([], progress: ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 200, droppedRecords: 0))
+        try await archive.record(TelemetryRecords(), progress: ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 200, droppedRecords: 0))
 
         let recorded = try await archive.record(
-            [LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)],
-            tokenSamples: [TokenSample(app: .codexBar, model: "gpt-5", tokenType: .input, startTimeUnixNano: 0, timeUnixNano: 1, count: 10)],
-            resets: [LimitReset(app: .codexBar, limit: weekly, timeUnixNano: 1, utilizationLast: 40, nextResetsAt: nil)],
-            perkSamples: [PerkSample(app: .codexBar, kind: .resetCredit, currency: nil, timeUnixNano: 1, value: 2, expiresAt: nil)],
-            perkGoneEvents: [PerkGoneEvent(app: .codexBar, kind: .resetCredit, currency: nil, quantity: 1, perkID: nil, expiresAt: nil, reportedReason: .used, timeUnixNano: 1)],
+            TelemetryRecords(
+                limitSamples: [LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)],
+                tokenSamples: [TokenSample(app: .codexBar, model: "gpt-5", tokenType: .input, startTimeUnixNano: 0, timeUnixNano: 1, count: 10)],
+                perkSamples: [PerkSample(app: .codexBar, kind: .resetCredit, currency: nil, timeUnixNano: 1, value: 2, expiresAt: nil)],
+                resets: [LimitReset(app: .codexBar, limit: weekly, timeUnixNano: 1, utilizationLast: 40, nextResetsAt: nil)],
+                perkGoneEvents: [PerkGoneEvent(app: .codexBar, kind: .resetCredit, currency: nil, quantity: 1, perkID: nil, expiresAt: nil, reportedReason: .used, timeUnixNano: 1)]
+            ),
             progress: ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 300, droppedRecords: 0),
             readFrom: start
         )
@@ -183,7 +185,7 @@ struct IncrementalImportTests {
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let first = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 50, droppedRecords: 0)
 
-        let accepted = try await archive.record([], progress: first, readFrom: nil)
+        let accepted = try await archive.record(TelemetryRecords(), progress: first, readFrom: nil)
 
         #expect(accepted)
         #expect(try await archive.progress(of: .codexBar, fileName: Self.fileName) == first)

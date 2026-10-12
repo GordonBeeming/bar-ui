@@ -9,7 +9,10 @@ struct ModelTokensSection: View {
 
     @Environment(PricingCatalog.self) private var pricing
     @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
-    @State private var range: TokenRange = .week
+    @State private var range: TimeRange = .week
+    /// Who this view is to the overview, which reads as far back as the
+    /// longest range any view shows.
+    @State private var viewer = UUID()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -18,7 +21,7 @@ struct ModelTokensSection: View {
                     .font(.headline)
                 Spacer()
                 Picker("Range", selection: $range) {
-                    ForEach(TokenRange.allCases) { range in
+                    ForEach(TimeRange.allCases) { range in
                         Text(range.label).tag(range)
                     }
                 }
@@ -27,7 +30,7 @@ struct ModelTokensSection: View {
                 .fixedSize()
             }
 
-            // Samples arrive every few minutes, so the window only needs to
+            // Samples arrive every few minutes, so the range only needs to
             // slide that often.
             TimelineView(.everyMinute) { context in
                 let usage = overview.tokenUsage(range: range, now: context.date)
@@ -48,6 +51,12 @@ struct ModelTokensSection: View {
                     )
                 }
             }
+        }
+        .task(id: range) {
+            await overview.show(range, by: viewer)
+        }
+        .onDisappear {
+            overview.stopShowing(by: viewer)
         }
     }
 }

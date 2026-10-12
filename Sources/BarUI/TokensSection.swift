@@ -1,5 +1,4 @@
 import BarUICore
-import Charts
 import SwiftUI
 
 /// Tokens over time, stacked by Bar App, with the tiles that sum the same
@@ -11,7 +10,7 @@ struct TokensSection: View {
 
     @Environment(PricingCatalog.self) private var pricing
     @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
-    @Binding var range: TokenRange
+    @Binding var range: TimeRange
 
     var body: some View {
         let usage = overview.tokenUsage(range: range, now: now)
@@ -21,7 +20,7 @@ struct TokensSection: View {
                     .font(.headline)
                 Spacer()
                 Picker("Range", selection: $range) {
-                    ForEach(TokenRange.allCases) { range in
+                    ForEach(TimeRange.allCases) { range in
                         Text(range.label).tag(range)
                     }
                 }
@@ -53,9 +52,7 @@ extension TokensSection {
 
 private struct TokensChart: View {
     let usage: TokenUsage
-    let range: TokenRange
-
-    private var unit: Calendar.Component { range == .day ? .hour : .day }
+    let range: TimeRange
 
     var body: some View {
         if usage.total == 0 {
@@ -66,35 +63,9 @@ private struct TokensChart: View {
             )
             .frame(height: 220)
         } else {
-            Chart {
-                ForEach(usage.buckets, id: \.start) { bucket in
-                    ForEach(BarApp.allCases, id: \.self) { app in
-                        if let tokens = bucket.tokensByApp[app], tokens > 0 {
-                            BarMark(
-                                x: .value("Time", bucket.start, unit: unit),
-                                y: .value("Tokens", tokens)
-                            )
-                            .foregroundStyle(by: .value("Bar App", app.displayName))
-                        }
-                    }
-                }
-            }
-            .chartForegroundStyleScale(
-                domain: BarApp.allCases.map(\.displayName),
-                range: BarApp.allCases.map(\.brandColor)
-            )
-            .chartYAxis {
-                AxisMarks { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let tokens = value.as(Int64.self) {
-                            Text(TokenFormat.compact(tokens))
-                        }
-                    }
-                }
-            }
-            .frame(height: 220)
-            .accessibilityLabel("Tokens over time, stacked by Bar App")
+            StackedTokensChart(usage: usage, unit: range.bucketComponent)
+                .frame(height: 220)
+                .accessibilityLabel("Tokens over time, stacked by Bar App")
         }
     }
 }
@@ -109,22 +80,22 @@ private struct TokenTiles: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
             TokenTile(
                 title: "Total tokens",
-                value: TokenFormat.compact(usage.total),
+                value: DisplayFormat.tokens(usage.total),
                 detail: BarApp.allCases
-                    .compactMap { app in usage.totalByApp[app].map { "\(app.displayName) \(TokenFormat.compact($0))" } }
+                    .compactMap { app in usage.totalByApp[app].map { "\(app.displayName) \(DisplayFormat.tokens($0))" } }
                     .joined(separator: " · ")
             )
             TokenTile(
                 title: "Output tokens",
-                value: TokenFormat.compact(usage.output),
-                detail: usage.reasoningShareOfOutput.map { "\(TokenFormat.percent($0)) reasoning" } ?? "No output yet"
+                value: DisplayFormat.tokens(usage.output),
+                detail: usage.reasoningShareOfOutput.map { "\(DisplayFormat.share($0)) reasoning" } ?? "No output yet"
             )
             TokenTile(
                 title: "Read from cache",
-                value: usage.cacheReadShareOfInput.map(TokenFormat.percent) ?? "–",
+                value: usage.cacheReadShareOfInput.map(DisplayFormat.share) ?? "–",
                 detail: usage.cacheReadShareOfInput == nil
                     ? "No input yet"
-                    : "\(TokenFormat.compact(usage.cacheRead)) of \(TokenFormat.compact(usage.input)) input"
+                    : "\(DisplayFormat.tokens(usage.cacheRead)) of \(DisplayFormat.tokens(usage.input)) input"
             )
             TokenTile(
                 title: "API Cost",
@@ -165,15 +136,5 @@ private struct TokenTile: View {
         }
         .accessibilityElement(children: .combine)
         .help(help ?? "")
-    }
-}
-
-enum TokenFormat {
-    static func compact(_ tokens: Int64) -> String {
-        tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
-    }
-
-    static func percent(_ share: Double) -> String {
-        share.formatted(.percent.precision(.fractionLength(0)))
     }
 }

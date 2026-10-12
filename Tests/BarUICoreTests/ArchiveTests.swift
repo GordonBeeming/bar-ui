@@ -10,12 +10,12 @@ struct ArchiveTests {
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let session = LimitDescriptor(id: "session", name: "Session (5h)", windowDurationMinutes: 300, modelID: nil)
 
-        try await archive.record([
+        try await archive.record(TelemetryRecords(limitSamples: [
             LimitSample(app: .claudeBar, limit: session, metric: .utilization, timeUnixNano: 1_000_000_000, value: 40),
             LimitSample(app: .claudeBar, limit: session, metric: .resetsAt, timeUnixNano: 1_000_000_000, value: 5_000),
             LimitSample(app: .claudeBar, limit: session, metric: .utilization, timeUnixNano: 2_000_000_000, value: 42),
             LimitSample(app: .claudeBar, limit: session, metric: .resetsAt, timeUnixNano: 2_000_000_000, value: 6_000)
-        ], progress: ImportProgress(app: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl", byteOffset: 10, droppedRecords: 0))
+        ]), progress: ImportProgress(app: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl", byteOffset: 10, droppedRecords: 0))
 
         let limits = try await archive.currentLimits()
 
@@ -39,8 +39,8 @@ struct ArchiveTests {
         let progress = ImportProgress(app: .codexBar, fileName: "codexbar-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0)
 
         // Newer first: a later import of an older file must not undo the rename.
-        try await archive.record([LimitSample(app: .codexBar, limit: after, metric: .utilization, timeUnixNano: 2, value: 5)], progress: progress)
-        try await archive.record([LimitSample(app: .codexBar, limit: before, metric: .utilization, timeUnixNano: 1, value: 4)], progress: progress)
+        try await archive.record(TelemetryRecords(limitSamples: [LimitSample(app: .codexBar, limit: after, metric: .utilization, timeUnixNano: 2, value: 5)]), progress: progress)
+        try await archive.record(TelemetryRecords(limitSamples: [LimitSample(app: .codexBar, limit: before, metric: .utilization, timeUnixNano: 1, value: 4)]), progress: progress)
 
         let limits = try await archive.currentLimits()
 
@@ -59,8 +59,8 @@ struct ArchiveTests {
         ]
         let progress = ImportProgress(app: .codexBar, fileName: "codexbar-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0)
 
-        try await archive.record(samples, progress: progress)
-        try await archive.record(samples, progress: progress)
+        try await archive.record(TelemetryRecords(limitSamples: samples), progress: progress)
+        try await archive.record(TelemetryRecords(limitSamples: samples), progress: progress)
 
         let history = try await archive.samples(of: .codexBar, limitID: "codex:10080", metric: .utilization)
         #expect(history.map(\.value) == [3, 4])
@@ -74,7 +74,7 @@ struct ArchiveTests {
         do {
             let archive = try Archive(url: url)
             try await archive.record(
-                [LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)],
+                TelemetryRecords(limitSamples: [LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)]),
                 progress: ImportProgress(app: .codexBar, fileName: "codexbar-metrics-2026-10-12.jsonl", byteOffset: 77, droppedRecords: 2)
             )
         }

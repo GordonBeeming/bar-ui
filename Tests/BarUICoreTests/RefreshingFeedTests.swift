@@ -135,7 +135,7 @@ struct RefreshingFeedTests {
         #expect(try String(contentsOf: directory.cacheFile, encoding: .utf8) == "ok:cached")
     }
 
-    @Test("A cache that no longer parses is skipped")
+    @Test("A cache that no longer parses is skipped for the bundled copy, and the unreadable cache is reported")
     func corruptCache() async throws {
         let directory = try Directory()
         try directory.writeCache("garbage", age: 60)
@@ -144,6 +144,19 @@ struct RefreshingFeedTests {
         let snapshot = try await Self.feed(directory, source: source).load(now: Self.now)
 
         #expect(snapshot.value == "ok:bundled")
+        #expect(snapshot.origin == .bundled)
+        #expect(snapshot.refreshFailure?.contains("offline copy") == true)
+    }
+
+    @Test("Having no cache yet is not a problem worth reporting on its own")
+    func missingCacheIsNotReported() async throws {
+        let directory = try Directory()
+        let source = FakeSource(.failure(Offline()))
+
+        let snapshot = try await Self.feed(directory, source: source).load(now: Self.now)
+
+        #expect(snapshot.origin == .bundled)
+        #expect(snapshot.refreshFailure?.contains("offline copy") == false)
     }
 
     @Test("Without anywhere to cache, it still fetches and falls back to the bundled copy")

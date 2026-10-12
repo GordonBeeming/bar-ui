@@ -10,7 +10,7 @@ public struct TokenPace: Sendable, Equatable {
     public let perHourAverage: Double
 
     public init(samples: [TokenSample], now: Date, calendar: Calendar = .current) {
-        let lastHour = TokenUsage(samples: samples, windowStart: now.addingTimeInterval(-3_600), bucketComponent: .hour, now: now, calendar: calendar)
+        let lastHour = TokenUsage(samples: samples, rangeStart: now.addingTimeInterval(-3_600), bucketComponent: .hour, now: now, calendar: calendar)
         let lastDay = TokenUsage(samples: samples, range: .day, now: now, calendar: calendar)
         perHourNow = lastHour.total
         perHourAverage = Double(lastDay.total) / 24

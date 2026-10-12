@@ -50,11 +50,12 @@ struct MenuBarPreviewTests {
             LimitSample(app: .claudeBar, limit: session, metric: metric, timeUnixNano: nano(minutes), value: value)
         }
         try await fixture.archive.record(
-            [
+            TelemetryRecords(
+                limitSamples: [
                 sample(-50, .utilization, 80), sample(-40, .utilization, 95), sample(-1, .utilization, 2),
                 sample(-1, .resetsAt, Self.now.timeIntervalSince1970 + 5 * 3_600)
             ],
-            resets: [LimitReset(app: .claudeBar, limit: session, timeUnixNano: nano(-2), utilizationLast: 95, nextResetsAt: nil)],
+            resets: [LimitReset(app: .claudeBar, limit: session, timeUnixNano: nano(-2), utilizationLast: 95, nextResetsAt: nil)]),
             progress: ImportProgress(app: .claudeBar, fileName: "x.jsonl", byteOffset: 1, droppedRecords: 0)
         )
         let overview = LimitsOverview(archive: fixture.archive)
@@ -72,7 +73,7 @@ struct MenuBarPreviewTests {
     func tokens() async throws {
         let fixture = try ImportFixture()
         try fixture.copyFixture("claudebar-metrics-2026-10-12.jsonl", to: fixture.claudeFolder)
-        let overview = LimitsOverview(archive: fixture.archive)
+        let overview = LimitsOverview(archive: fixture.archive, now: { Self.now })
         let preview = MenuBarPreview(archive: fixture.archive, overview: overview)
 
         await preview.refresh(statuses: [.claudeBar: Self.status(.tracking, folder: fixture.claudeFolder)], now: Self.now)

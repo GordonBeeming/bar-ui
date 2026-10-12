@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Where a feed's document comes from. A protocol so nothing under test ever
 /// reaches the network.
@@ -51,6 +52,10 @@ public struct FeedSnapshot<Value: Sendable>: Sendable {
 /// offline. A download only replaces the cache once it has parsed, so a
 /// captive portal's HTML page can't poison it.
 public struct RefreshingFeed<Value: Sendable>: Sendable {
+    private static var logger: Logger {
+        Logger(subsystem: "com.gordonbeeming.BarUI", category: "RefreshingFeed")
+    }
+
     private let url: URL
     private let cacheFile: URL?
     private let bundled: Data
@@ -76,7 +81,8 @@ public struct RefreshingFeed<Value: Sendable>: Sendable {
 
     /// Throws only when nothing usable exists, not even the bundled copy.
     public func load(now: Date) async throws -> FeedSnapshot<Value> {
-        let cached = readCache()
+        let cache = readCache()
+        let cached = cache.copy
         if let cached, now.timeIntervalSince(cached.updatedAt) < maxAge {
             return FeedSnapshot(value: cached.value, origin: .cached, updatedAt: cached.updatedAt, refreshFailure: nil)
         }
@@ -93,17 +99,40 @@ public struct RefreshingFeed<Value: Sendable>: Sendable {
         if let cached {
             return FeedSnapshot(value: cached.value, origin: .cached, updatedAt: cached.updatedAt, refreshFailure: failure)
         }
+        if let problem = cache.problem {
+            failure += "\nThe offline copy couldn't be read either: \(problem)"
+        }
         return FeedSnapshot(value: try parse(bundled), origin: .bundled, updatedAt: nil, refreshFailure: failure)
     }
 
-    private func readCache() -> (value: Value, updatedAt: Date)? {
-        guard let cacheFile,
-              let data = try? Data(contentsOf: cacheFile),
-              let value = try? parse(data),
-              let updatedAt = (try? FileManager.default.attributesOfItem(atPath: cacheFile.path))?[.modificationDate] as? Date else {
-            return nil
+    private struct CacheRead {
+        var copy: (value: Value, updatedAt: Date)?
+        /// Why a cache file that exists couldn't be used. Nil when there is
+        /// simply no cache yet, which is normal before the first download.
+        var problem: String?
+    }
+
+    private struct MissingModificationDate: Error, LocalizedError {
+        var errorDescription: String? { "It has no modification date." }
+    }
+
+    private func readCache() -> CacheRead {
+        guard let cacheFile else {
+            return CacheRead()
         }
-        return (value, updatedAt)
+        do {
+            let data = try Data(contentsOf: cacheFile)
+            let value = try parse(data)
+            guard let updatedAt = try FileManager.default.attributesOfItem(atPath: cacheFile.path)[.modificationDate] as? Date else {
+                throw MissingModificationDate()
+            }
+            return CacheRead(copy: (value, updatedAt))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return CacheRead()
+        } catch {
+            Self.logger.error("Can't use the cached copy at \(cacheFile.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return CacheRead(problem: error.localizedDescription)
+        }
     }
 
     /// Returns why the cache couldn't be kept, or nil.

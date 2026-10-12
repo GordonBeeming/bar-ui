@@ -1,6 +1,5 @@
 import AppKit
 import BarUICore
-import Charts
 import SwiftUI
 
 /// The panel that opens from the menu bar icon. It follows the Mac's
@@ -104,10 +103,10 @@ private struct PreviewContent: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(TokenFormat.compact(usage.total))
+                    Text(DisplayFormat.tokens(usage.total))
                         .font(.system(size: 26, weight: .bold))
                         .monospacedDigit()
-                    Text("\(TokenFormat.compact(pace.perHourNow))/h now · \(TokenFormat.compact(Int64(pace.perHourAverage.rounded())))/h avg")
+                    Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -180,27 +179,9 @@ private struct HourlyChart: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 60)
         } else {
-            Chart {
-                ForEach(usage.buckets, id: \.start) { bucket in
-                    ForEach(BarApp.allCases, id: \.self) { app in
-                        if let tokens = bucket.tokensByApp[app], tokens > 0 {
-                            BarMark(
-                                x: .value("Time", bucket.start, unit: .hour),
-                                y: .value("Tokens", tokens)
-                            )
-                            .foregroundStyle(by: .value("Bar App", app.displayName))
-                        }
-                    }
-                }
-            }
-            .chartForegroundStyleScale(
-                domain: BarApp.allCases.map(\.displayName),
-                range: BarApp.allCases.map(\.brandColor)
-            )
-            .chartLegend(.hidden)
-            .chartYAxis(.hidden)
-            .frame(height: 60)
-            .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by Bar App")
+            StackedTokensChart(usage: usage, unit: .hour, compact: true)
+                .frame(height: 60)
+                .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by Bar App")
         }
     }
 }
@@ -216,7 +197,7 @@ private struct LimitRowView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text("\(row.percentUsed)%")
+                Text(DisplayFormat.points(row.percentUsed))
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
             }

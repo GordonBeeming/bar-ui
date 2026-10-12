@@ -6,7 +6,10 @@ struct OverviewView: View {
     let overview: LimitsOverview?
     let archiveFailure: String?
 
-    @State private var range: TokenRange = .week
+    @State private var range: TimeRange = .week
+    /// Who this view is to the overview, which reads as far back as the
+    /// longest range any view shows.
+    @State private var viewer = UUID()
 
     var body: some View {
         Group {
@@ -15,6 +18,12 @@ struct OverviewView: View {
                 // few minutes, so a half-minute tick keeps them honest.
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     content(overview: overview, cards: overview.cards(now: context.date), problem: overview.problem, now: context.date)
+                }
+                .task(id: range) {
+                    await overview.show(range, by: viewer)
+                }
+                .onDisappear {
+                    overview.stopShowing(by: viewer)
                 }
             } else {
                 ContentUnavailableView(
@@ -105,7 +114,7 @@ private struct LimitCardView: View {
             .foregroundStyle(.secondary)
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(card.percentUsed)%")
+                Text(DisplayFormat.points(card.percentUsed))
                     .font(.system(size: 34, weight: .bold))
                     .monospacedDigit()
                 Text("used")
