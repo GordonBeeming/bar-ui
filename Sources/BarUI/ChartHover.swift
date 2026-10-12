@@ -63,8 +63,13 @@ extension View {
         let format: Date.FormatStyle = unit == .hour
             ? .dateTime.hour()
             : .dateTime.day().month(.abbreviated)
+        // Day labels on automatic marks can land twice in one day ("13 Oct"
+        // at midnight and at noon), so daily axes mark each midnight.
+        let values: AxisMarkValues = unit == .hour
+            ? .automatic(desiredCount: desiredCount)
+            : .stride(by: .day)
         return chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: desiredCount)) { value in
+            AxisMarks(values: values) { value in
                 AxisGridLine()
                 AxisTick()
                 AxisValueLabel(

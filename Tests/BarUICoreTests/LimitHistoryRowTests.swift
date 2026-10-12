@@ -56,6 +56,32 @@ struct LimitHistoryRowTests {
         #expect(row.segments.map { $0.map(\.percent) } == [[10], [5, 7]])
     }
 
+    @Test("A gap with no reset in it is bridged from the last sample before to the first after")
+    func bridgedGap() {
+        let history = Self.history(utilization: [
+            (0, 10), (300, 12), (600, 14), (900, 16),
+            (900 + 6 * 3600, 16), (900 + 6 * 3600 + 300, 18)
+        ], resets: [])
+
+        let row = LimitHistoryRow(history: history)
+
+        #expect(row.bridges.map { $0.map(\.percent) } == [[16, 16]])
+        #expect(row.bridges.map { $0.map(\.date) } == [[Self.date(900), Self.date(900 + 6 * 3600)]])
+    }
+
+    @Test("A gap with a reset in it stays open, so the drop isn't drawn as a slope")
+    func resetInGapIsNotBridged() {
+        let history = Self.history(utilization: [
+            (0, 70), (300, 75), (600, 80),
+            (600 + 6 * 3600, 5), (600 + 6 * 3600 + 300, 7)
+        ], resets: [(600 + 3 * 3600, 80)])
+
+        let row = LimitHistoryRow(history: history)
+
+        #expect(row.segments.count == 2)
+        #expect(row.bridges.isEmpty)
+    }
+
     @Test("Samples at the usual pace stay one line")
     func noGap() {
         let history = Self.history(utilization: [(0, 10), (300, 12), (600, 14), (1_000, 16)], resets: [])

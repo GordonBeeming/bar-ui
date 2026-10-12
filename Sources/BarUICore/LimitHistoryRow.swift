@@ -29,6 +29,11 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
     /// its own line, so a gap shows as empty space instead of a straight line
     /// across it.
     public let segments: [[Point]]
+    /// Two-point lines joining a segment to the next across a Tracking gap,
+    /// drawn fainter so the stretch with no samples (a Mac asleep, say) still
+    /// reads as one line. A gap with a reset in it isn't bridged: a line from
+    /// before the reset to after it would draw the drop as a slope.
+    public let bridges: [[Point]]
     public let resetMarkers: [ResetMarker]
     public let percentUsedNow: Int?
     public let latestSampleAt: Date?
@@ -48,6 +53,7 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
         resetMarkers = history.resets
             .sorted { $0.timeUnixNano < $1.timeUnixNano }
             .map { ResetMarker(date: Date(unixNano: $0.timeUnixNano), unusedPercent: 100 - $0.utilizationLast) }
+        bridges = Self.bridges(between: segments, resets: resetMarkers.map(\.date))
         percentUsedNow = history.latest.map { Int($0.value.rounded()) }
         latestSampleAt = history.latest.map { Date(unixNano: $0.timeUnixNano) }
         unusedAtLastReset = resetMarkers.last?.unusedPercent
@@ -102,6 +108,16 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
             segments[segments.count - 1].append(point(sample))
         }
         return segments
+    }
+
+    private static func bridges(between segments: [[Point]], resets: [Date]) -> [[Point]] {
+        zip(segments, segments.dropFirst()).compactMap { before, after in
+            guard let end = before.last, let start = after.first else {
+                return nil
+            }
+            let resetInGap = resets.contains { $0 > end.date && $0 <= start.date }
+            return resetInGap ? nil : [end, start]
+        }
     }
 
     private static func point(_ sample: ArchivedSample) -> Point {
