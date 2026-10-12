@@ -28,7 +28,7 @@ struct PriceTableTests {
         try PriceTable(litellmJSON: Data(list.utf8))
     }
 
-    @Test("Each Token Type reads its own rate, and an unsplit cache write is the 5 minute rate")
+    @Test("Each Token Type reads its own rate, and a cache write of unknown lifetime has none")
     func ratesPerTokenType() throws {
         let price = try #require(try Self.table().price(for: "claude-opus-4-8"))
 
@@ -36,7 +36,7 @@ struct PriceTableTests {
         #expect(price.usdPerToken(for: .output) == 0.000025)
         #expect(price.usdPerToken(for: .cacheRead) == 5E-7)
         #expect(price.usdPerToken(for: .cacheWrite5m) == 0.00000625)
-        #expect(price.usdPerToken(for: .cacheWrite) == 0.00000625)
+        #expect(price.usdPerToken(for: .cacheWrite) == nil)
         #expect(price.usdPerToken(for: .cacheWrite1h) == 0.00001)
     }
 

@@ -5,11 +5,10 @@ extension Archive {
 
     public func limitLifecycleEvents(since: Date? = nil) throws -> [LimitLifecycleEvent] {
         let statement = try prepare("""
-            SELECT e.app, e.limit_id, e.kind, e.time_unix_nano, l.name, l.window_minutes, l.model_id
-            FROM limit_events e
-            JOIN limits l ON l.app = e.app AND l.limit_id = e.limit_id
-            WHERE e.time_unix_nano >= ?1
-            ORDER BY e.time_unix_nano, e.app, e.limit_id
+            SELECT app, limit_id, kind, time_unix_nano, name, window_minutes, model_id
+            FROM limit_events
+            WHERE time_unix_nano >= ?1
+            ORDER BY time_unix_nano, app, limit_id
             """)
         try statement.bind(.integer(since?.unixNano ?? Int64.min))
         var events: [LimitLifecycleEvent] = []

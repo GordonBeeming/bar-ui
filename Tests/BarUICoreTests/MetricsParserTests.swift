@@ -123,6 +123,24 @@ struct MetricsParserTests {
         #expect(result.droppedRecords == 1)
     }
 
+    static let malformedSiblingMetrics: [String] = [
+        #"{"name":"bar.limit.utilization","unit":5,"gauge":{"dataPoints":[]}}"#,
+        #"{"name":"bar.limit.resets_at","unit":"s","gauge":"none"}"#,
+        #"{"name":"bar.limit.utilization","unit":"%","gauge":{"dataPoints":"none"}}"#,
+        #"{"name":"bar.tokens","unit":"{token}","sum":7}"#
+    ]
+
+    @Test("A malformed metric is dropped and counted on its own; the valid metric beside it on the line is kept", arguments: malformedSiblingMetrics)
+    func malformedSiblingMetric(_ malformed: String) {
+        let good = #"{"name":"bar.limit.utilization","unit":"%","gauge":{"dataPoints":[{"attributes":[{"key":"limit.id","value":{"stringValue":"codex:10080"}},{"key":"limit.name","value":{"stringValue":"Weekly"}}],"timeUnixNano":"1791791100000000000","asDouble":10}]}}"#
+        let line = #"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "codexbar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "codexbar")),"metrics":[\#(malformed),\#(good)]}]}]}"# + "\n"
+
+        let result = MetricsParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.limitSamples.map(\.limit.id) == ["codex:10080"])
+        #expect(result.droppedRecords == 1)
+    }
+
     @Test("Metrics the spec doesn't ask Bar UI to read are skipped without counting as non-conforming")
     func unknownMetricsIgnored() throws {
         let line = Data((#"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "codexbar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "codexbar")),"metrics":[{"name":"codex.usage.used_percent","sum":{"dataPoints":[{"asDouble":3}]}}]}]}]}"# + "\n").utf8)

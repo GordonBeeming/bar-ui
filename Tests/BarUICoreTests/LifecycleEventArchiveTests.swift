@@ -69,6 +69,65 @@ struct LifecycleEventArchiveTests {
         #expect(try await reopened.progress(of: .claudeBar, fileName: "claudebar-logs-2026-10-12.jsonl") != nil)
     }
 
+    @Test("A Limit event keeps the name and Window it was recorded with after the Limit is renamed")
+    func eventKeepsItsDescriptor() async throws {
+        let folder = try TemporaryFolder()
+        let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
+        let progress = ImportProgress(app: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0)
+        let before = LimitDescriptor(id: "weekly_scoped", name: "Weekly · Opus", windowDurationMinutes: 10080, modelID: "claude-opus-4-1")
+        let after = LimitDescriptor(id: "weekly_scoped", name: "Weekly · Sonnet", windowDurationMinutes: 4320, modelID: "claude-sonnet-4-5")
+
+        try await archive.record(TelemetryRecords(
+            limitEvents: [LimitLifecycleEvent(app: .claudeBar, limit: before, kind: .appeared, timeUnixNano: t0)]
+        ), progress: progress)
+        try await archive.record(TelemetryRecords(
+            limitSamples: [LimitSample(app: .claudeBar, limit: after, metric: .utilization, timeUnixNano: t0 + minute, value: 3)]
+        ), progress: progress)
+
+        #expect(try await archive.limitLifecycleEvents().map(\.limit) == [before])
+        #expect(try await archive.currentLimits().map(\.limit) == [after])
+    }
+
+    @Test("An Archive whose Limit events were stored without their own name takes it from the Limit, and keeps it after a rename")
+    func olderEventsTakeTheLimitsDescriptor() async throws {
+        let folder = try TemporaryFolder()
+        let url = folder.url.appendingPathComponent("Archive.sqlite")
+        try execute("""
+            CREATE TABLE limits (
+                app TEXT NOT NULL, limit_id TEXT NOT NULL, name TEXT NOT NULL,
+                window_minutes INTEGER, model_id TEXT, described_at INTEGER NOT NULL,
+                PRIMARY KEY (app, limit_id)) WITHOUT ROWID;
+            CREATE TABLE limit_events (
+                app TEXT NOT NULL, limit_id TEXT NOT NULL, kind TEXT NOT NULL, time_unix_nano INTEGER NOT NULL,
+                PRIMARY KEY (app, limit_id, kind, time_unix_nano)) WITHOUT ROWID;
+            INSERT INTO limits VALUES ('claudeBar', 'session', 'Session (5h)', 300, NULL, \(t0));
+            INSERT INTO limit_events VALUES ('claudeBar', 'session', 'appeared', \(t0));
+            PRAGMA user_version = 1;
+            """, at: url)
+
+        let archive = try Archive(url: url)
+        let renamed = LimitDescriptor(id: "session", name: "Session", windowDurationMinutes: 240, modelID: nil)
+        try await archive.record(TelemetryRecords(
+            limitSamples: [LimitSample(app: .claudeBar, limit: renamed, metric: .utilization, timeUnixNano: t0 + minute, value: 3)]
+        ), progress: ImportProgress(app: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0))
+        let reopened = try Archive(url: url)
+
+        let original = LimitDescriptor(id: "session", name: "Session (5h)", windowDurationMinutes: 300, modelID: nil)
+        let events = try await reopened.limitLifecycleEvents()
+        #expect(events.map(\.limit) == [original])
+    }
+
+    private func execute(_ sql: String, at url: URL) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK, let handle else {
+            throw ArchiveError(operation: "open the test Archive", message: "sqlite3_open_v2 failed", code: SQLITE_CANTOPEN)
+        }
+        defer { sqlite3_close(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw ArchiveError(operation: "build the test Archive", message: String(cString: sqlite3_errmsg(handle)), code: SQLITE_ERROR)
+        }
+    }
+
     private func markArchiveAsVersion(_ version: Int, at url: URL) throws {
         var handle: OpaquePointer?
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let handle else {

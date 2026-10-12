@@ -86,6 +86,46 @@ struct ArchiveTests {
         #expect(progress?.byteOffset == 77)
         #expect(progress?.droppedRecords == 2)
     }
+
+    struct LifecycleCase: Sendable, CustomTestStringConvertible {
+        let label: String
+        /// Lifecycle events for the Limit whose only utilisation sample is at 10.
+        let events: [(kind: LimitLifecycleEvent.Kind, time: Int64)]
+        let isCurrent: Bool
+
+        var testDescription: String { label }
+    }
+
+    static let lifecycleCases: [LifecycleCase] = [
+        LifecycleCase(label: "disappeared after its last sample", events: [(.disappeared, 20)], isCurrent: false),
+        LifecycleCase(label: "disappeared before its last sample", events: [(.disappeared, 5)], isCurrent: true),
+        LifecycleCase(label: "disappeared, then appeared again", events: [(.disappeared, 20), (.appeared, 30)], isCurrent: true),
+        LifecycleCase(label: "appeared, then disappeared", events: [(.appeared, 5), (.disappeared, 20)], isCurrent: false),
+        LifecycleCase(label: "no lifecycle events", events: [], isCurrent: true)
+    ]
+
+    @Test("A Limit whose latest lifecycle event is a disappearance after its latest sample isn't current, but keeps its history", arguments: lifecycleCases)
+    func disappearedLimit(_ lifecycle: LifecycleCase) async throws {
+        let folder = try TemporaryFolder()
+        let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
+        let session = LimitDescriptor(id: "session", name: "Session", windowDurationMinutes: 300, modelID: nil)
+        let weekly = LimitDescriptor(id: "weekly", name: "Weekly", windowDurationMinutes: 10080, modelID: nil)
+
+        try await archive.record(TelemetryRecords(
+            limitSamples: [
+                LimitSample(app: .claudeBar, limit: session, metric: .utilization, timeUnixNano: 10, value: 40),
+                LimitSample(app: .claudeBar, limit: weekly, metric: .utilization, timeUnixNano: 10, value: 7)
+            ],
+            limitEvents: lifecycle.events.map {
+                LimitLifecycleEvent(app: .claudeBar, limit: session, kind: $0.kind, timeUnixNano: $0.time)
+            }
+        ), progress: ImportProgress(app: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0))
+
+        let current = try await archive.currentLimits().map(\.limit.id)
+        #expect(current == (lifecycle.isCurrent ? ["session", "weekly"] : ["weekly"]))
+        let histories = try await archive.limitHistories(of: .claudeBar, since: nil)
+        #expect(histories.first { $0.limit.id == "session" }?.utilization.map(\.value) == [40])
+    }
 }
 
 /// A folder under the system temp directory that is removed when the test

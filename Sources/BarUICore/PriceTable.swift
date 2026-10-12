@@ -19,18 +19,20 @@ public struct ModelPrice: Sendable, Equatable {
         self.cacheWrite1h = cacheWrite1h
     }
 
-    /// Nil for Reasoning, which output already pays for, and for any rate the
-    /// price list doesn't carry.
+    /// Nil for Reasoning, which output already pays for, for a cache write
+    /// whose lifetime the tool didn't report, and for any rate the price list
+    /// doesn't carry.
     public func usdPerToken(for type: TokenType) -> Double? {
         switch type {
         case .input: input
         case .output: output
         case .cacheRead: cacheRead
-        // Claude's unsplit cache write defaults to a 5 minute lifetime (see
-        // the Telemetry Spec), so it is billed at that rate.
-        case .cacheWrite5m, .cacheWrite: cacheWrite5m
+        case .cacheWrite5m: cacheWrite5m
         case .cacheWrite1h: cacheWrite1h
-        case .reasoning: nil
+        // The spec's `cache_write` is a write with no reported lifetime and no
+        // documented default (Claude's 5 minute default already arrives as
+        // `cache_write_5m`), so either rate would be a guess.
+        case .cacheWrite, .reasoning: nil
         }
     }
 }

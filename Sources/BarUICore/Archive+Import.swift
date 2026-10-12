@@ -76,8 +76,8 @@ extension Archive {
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 """)
             let insertLimitEvent = try prepare("""
-                INSERT OR IGNORE INTO limit_events (app, limit_id, kind, time_unix_nano)
-                VALUES (?1, ?2, ?3, ?4)
+                INSERT OR IGNORE INTO limit_events (app, limit_id, kind, time_unix_nano, name, window_minutes, model_id)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
             let insertTrackingStart = try prepare("""
                 INSERT OR IGNORE INTO tracking_starts (app, time_unix_nano, interval_minutes)
@@ -171,7 +171,10 @@ extension Archive {
                     .text(event.app.rawValue),
                     .text(event.limit.id),
                     .text(event.kind.rawValue),
-                    .integer(event.timeUnixNano)
+                    .integer(event.timeUnixNano),
+                    .text(event.limit.name),
+                    event.limit.windowDurationMinutes.map { .integer(Int64($0)) } ?? .null,
+                    event.limit.modelID.map { .text($0) } ?? .null
                 )
             }
             for event in records.trackingStarts {

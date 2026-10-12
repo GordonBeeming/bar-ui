@@ -112,6 +112,9 @@ public actor Archive {
                 limit_id TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 time_unix_nano INTEGER NOT NULL,
+                name TEXT,
+                window_minutes INTEGER,
+                model_id TEXT,
                 PRIMARY KEY (app, limit_id, kind, time_unix_nano)
             ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS tracking_starts (
@@ -133,6 +136,7 @@ public actor Archive {
                 app, kind, currency, time_unix_nano, perk_id, IFNULL(quantity, -1), IFNULL(expires_at, -1));
             """, on: database, operation: "create its tables")
         try carryOverPerkSamples(into: database)
+        try addLimitEventDescriptors(to: database)
         try execute("PRAGMA user_version = \(schemaVersion)", on: database, operation: "record its version")
     }
 
@@ -151,6 +155,50 @@ public actor Archive {
             INSERT OR IGNORE INTO perk_points (app, kind, currency, time_unix_nano, perk_id, value, expires_at)
             SELECT app, kind, currency, time_unix_nano, '', value, expires_at FROM perk_samples
             """, on: database, operation: "carry its Perk readings over")
+    }
+
+    /// A Limit's name and Window can change while its ID stays, so each
+    /// lifecycle event keeps the descriptor it was recorded with. An Archive
+    /// written before that has the columns added, and its events take the
+    /// Limit's descriptor as it stands now: the nearest record there is.
+    /// Only rows still without a name are filled, so every later open is a
+    /// no-op.
+    private static func addLimitEventDescriptors(to database: OpaquePointer) throws {
+        // Another Bar UI process may open the same Archive at once; the write
+        // lock keeps the two from both adding a column.
+        try execute("BEGIN IMMEDIATE", on: database, operation: "start adding Limit event descriptors")
+        do {
+            try addLimitEventDescriptorColumns(to: database)
+            try execute("COMMIT", on: database, operation: "finish adding Limit event descriptors")
+        } catch {
+            sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
+    private static func addLimitEventDescriptorColumns(to database: OpaquePointer) throws {
+        let columns = try Statement(sql: "PRAGMA table_info(limit_events)", database: database)
+        var existing: Set<String> = []
+        while try columns.step() {
+            if let name = columns.text(at: 1) {
+                existing.insert(name)
+            }
+        }
+        let wanted: [(name: String, type: String)] = [("name", "TEXT"), ("window_minutes", "INTEGER"), ("model_id", "TEXT")]
+        for column in wanted where !existing.contains(column.name) {
+            try execute(
+                "ALTER TABLE limit_events ADD COLUMN \(column.name) \(column.type)",
+                on: database,
+                operation: "add \(column.name) to its Limit events"
+            )
+        }
+        try execute("""
+            UPDATE limit_events SET
+                name = (SELECT l.name FROM limits l WHERE l.app = limit_events.app AND l.limit_id = limit_events.limit_id),
+                window_minutes = (SELECT l.window_minutes FROM limits l WHERE l.app = limit_events.app AND l.limit_id = limit_events.limit_id),
+                model_id = (SELECT l.model_id FROM limits l WHERE l.app = limit_events.app AND l.limit_id = limit_events.limit_id)
+            WHERE name IS NULL
+            """, on: database, operation: "fill in its older Limit events' descriptors")
     }
 
     private static func execute(_ sql: String, on database: OpaquePointer, operation: String) throws {

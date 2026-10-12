@@ -59,11 +59,13 @@ jobs:
 
       - name: Set release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          # Checked before the prefix is stripped: stripping first would let a
+          # bare 0.1 through, and the cask's download URL always adds the v.
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must be major.minor with a v prefix, like v0.1; got ${GITHUB_REF_NAME}" >&2
             exit 1
           fi
+          VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Import signing certificate

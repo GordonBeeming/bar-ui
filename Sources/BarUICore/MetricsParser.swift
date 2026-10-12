@@ -70,6 +70,12 @@ public enum MetricsParser {
                 continue
             }
             for metric in scope.metrics ?? [] {
+                if metric.isMalformed {
+                    if isReadMetric(metric.name) {
+                        dropped += 1
+                    }
+                    continue
+                }
                 if let name = metric.name, let unit = specUnits[name], metric.unit != unit {
                     dropped += 1
                     continue
@@ -227,6 +233,31 @@ private struct Metric: Decodable {
     let unit: String?
     let gauge: Gauge?
     let sum: Sum?
+    /// The metric isn't an object, or one of its fields is of the wrong type.
+    /// Decoding never throws, so one broken metric can't take the valid
+    /// metrics beside it on the line down with it.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name, unit, gauge, sum
+    }
+
+    init(from decoder: any Decoder) throws {
+        guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+            name = nil
+            unit = nil
+            gauge = nil
+            sum = nil
+            isMalformed = true
+            return
+        }
+        var malformed = false
+        name = container.decodeLeniently(String.self, forKey: .name, malformed: &malformed)
+        unit = container.decodeLeniently(String.self, forKey: .unit, malformed: &malformed)
+        gauge = container.decodeLeniently(Gauge.self, forKey: .gauge, malformed: &malformed)
+        sum = container.decodeLeniently(Sum.self, forKey: .sum, malformed: &malformed)
+        isMalformed = malformed || gauge?.isMalformed == true || sum?.isMalformed == true
+    }
 }
 
 private struct Sum: Decodable {
@@ -252,6 +283,19 @@ private struct Sum: Decodable {
 
 private struct Gauge: Decodable {
     let dataPoints: [NumberDataPoint]?
+    /// `dataPoints` was present but not a list of objects.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case dataPoints
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var malformed = false
+        dataPoints = container.decodeLeniently([NumberDataPoint].self, forKey: .dataPoints, malformed: &malformed)
+        isMalformed = malformed
+    }
 }
 
 private struct NumberDataPoint: Decodable {

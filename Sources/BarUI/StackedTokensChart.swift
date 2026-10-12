@@ -49,17 +49,8 @@ struct StackedTokensChart: View {
             range: BarApp.allCases.map(\.brandColor)
         )
         .chartLegend(compact ? .hidden : .automatic)
-        .chartYAxis(compact ? .hidden : .automatic)
-        .chartYAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let tokens = value.as(Int64.self) {
-                        Text(DisplayFormat.tokens(tokens))
-                    }
-                }
-            }
-        }
+        .tokensXDomain(usage.timeDomain(component: unit))
+        .tokensYAxis(compact: compact)
     }
 
     /// Half a bucket, so the rule sits on the middle of the bar rather than its left edge.
@@ -81,6 +72,39 @@ struct StackedTokensChart: View {
             }
             Text("Total: \(bucket.tokensByApp.values.reduce(0, +).formatted())")
                 .fontWeight(.semibold)
+        }
+    }
+}
+
+private extension View {
+    /// Quiet buckets draw no mark, so without an explicit domain the axis
+    /// would shrink to the buckets that had usage.
+    @ViewBuilder
+    func tokensXDomain(_ domain: ClosedRange<Date>?) -> some View {
+        if let domain {
+            chartXScale(domain: domain)
+        } else {
+            self
+        }
+    }
+
+    /// A sparkline has no y-axis at all; any custom axis would bring its marks
+    /// and the space they take back.
+    @ViewBuilder
+    func tokensYAxis(compact: Bool) -> some View {
+        if compact {
+            chartYAxis(.hidden)
+        } else {
+            chartYAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let tokens = value.as(Int64.self) {
+                            Text(DisplayFormat.tokens(tokens))
+                        }
+                    }
+                }
+            }
         }
     }
 }

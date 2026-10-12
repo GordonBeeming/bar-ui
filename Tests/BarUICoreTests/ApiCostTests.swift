@@ -26,7 +26,6 @@ struct ApiCostTests {
         (.output, 1_000_000, 25.0),
         (.cacheRead, 1_000_000, 0.5),
         (.cacheWrite5m, 1_000_000, 6.25),
-        (.cacheWrite, 1_000_000, 6.25),
         (.cacheWrite1h, 1_000_000, 10.0),
         (.input, 250_000, 1.25)
     ]
@@ -75,6 +74,15 @@ struct ApiCostTests {
         #expect(cost.byModel["m"]?.excludedTokens == 300)
         #expect(cost.excludedTokens == 300)
         #expect(cost.unpricedModels.isEmpty)
+    }
+
+    @Test("A cache write of unknown lifetime isn't priced at either lifetime's rate; its tokens are excluded")
+    func unknownLifetimeCacheWrite() {
+        let cost = Self.cost(["m": [.input: 1_000_000, .cacheWrite: 400]], ["m": Self.full])
+
+        #expect(abs(cost.totalUSD - 5.0) < 1e-9)
+        #expect(cost.byModel["m"]?.excludedTokens == 400)
+        #expect(cost.excludedTokens == 400)
     }
 
     @Test("No usage costs nothing and excludes nothing")

@@ -194,4 +194,42 @@ struct TokenUsageTests {
             #expect(usage.output == 564_812)
         }
     }
+
+    struct DomainCase: Sendable, CustomTestStringConvertible {
+        let range: TimeRange
+        /// When the only usage happened, in hours before `now`.
+        let burstAgoHours: Int64
+        /// The domain's ends, in seconds from `now`.
+        let start: TimeInterval
+        let end: TimeInterval
+
+        var testDescription: String { "\(range)" }
+    }
+
+    // `now` is midday, so a 24 hour range starts on an hour and runs to the end
+    // of the current one, and a week starts at midnight seven days back and
+    // runs to the end of today.
+    static let domainCases: [DomainCase] = [
+        DomainCase(range: .day, burstAgoHours: 10, start: -24 * 3_600, end: 3_600),
+        DomainCase(range: .week, burstAgoHours: 50, start: -(7 * 24 + 12) * 3_600, end: 12 * 3_600)
+    ]
+
+    @Test("The chart's time domain spans the whole selected range, quiet buckets at either end included", arguments: domainCases)
+    func timeDomainCoversRange(_ domainCase: DomainCase) throws {
+        let samples = [
+            Self.sample(.output, start: 1, agoHours: domainCase.burstAgoHours + 1, count: 0),
+            Self.sample(.output, start: 1, agoHours: domainCase.burstAgoHours, count: 500)
+        ]
+        let usage = Self.usage(samples, domainCase.range)
+
+        let domain = try #require(usage.timeDomain(component: domainCase.range.bucketComponent, calendar: Self.calendar))
+
+        #expect(domain.lowerBound == Self.now.addingTimeInterval(domainCase.start))
+        #expect(domain.upperBound == Self.now.addingTimeInterval(domainCase.end))
+    }
+
+    @Test("No buckets, no time domain")
+    func noTimeDomainWithoutBuckets() {
+        #expect(Self.usage([], .all).timeDomain(component: .day, calendar: Self.calendar) == nil)
+    }
 }

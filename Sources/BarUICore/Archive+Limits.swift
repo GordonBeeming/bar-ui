@@ -73,9 +73,21 @@ extension Archive {
             WHERE u.time_unix_nano = (
                 SELECT MAX(m.time_unix_nano) FROM limit_samples m
                 WHERE m.app = l.app AND m.limit_id = l.limit_id AND m.metric = ?1)
+            -- A Limit the tool stopped reporting keeps its last sample
+            -- forever, so its disappearance is what says it isn't current.
+            -- An appearance at the same instant wins the tie.
+            AND IFNULL((
+                SELECT e.kind = ?3 AND e.time_unix_nano > u.time_unix_nano FROM limit_events e
+                WHERE e.app = l.app AND e.limit_id = l.limit_id
+                ORDER BY e.time_unix_nano DESC, e.kind = ?3
+                LIMIT 1), 0) = 0
             ORDER BY l.app, l.limit_id
             """)
-        try statement.bind(.text(LimitMetric.utilization.rawValue), .text(LimitMetric.resetsAt.rawValue))
+        try statement.bind(
+            .text(LimitMetric.utilization.rawValue),
+            .text(LimitMetric.resetsAt.rawValue),
+            .text(LimitLifecycleEvent.Kind.disappeared.rawValue)
+        )
         var limits: [CurrentLimit] = []
         while try statement.step() {
             // A Bar App this build doesn't know (written by a newer Bar UI)

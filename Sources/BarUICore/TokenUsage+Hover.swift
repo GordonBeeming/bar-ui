@@ -11,6 +11,18 @@ extension TokenUsage {
         }
         return bucket
     }
+
+    /// From the first bucket's start to the end of the last bucket. A chart
+    /// left to find its own domain only sees the buckets it drew a mark for,
+    /// so quiet buckets at either end would vanish and the activity would
+    /// look like it filled the whole range. Nil when there are no buckets.
+    public func timeDomain(component: Calendar.Component, calendar: Calendar = .current) -> ClosedRange<Date>? {
+        guard let first = buckets.first?.start, let last = buckets.last?.start,
+              let end = calendar.date(byAdding: component, value: 1, to: last) else {
+            return nil
+        }
+        return first...end
+    }
 }
 
 extension TokenUsage.Bucket {
