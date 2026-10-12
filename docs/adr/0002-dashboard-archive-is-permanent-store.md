@@ -1,0 +1,3 @@
+# The Dashboard's Archive is the permanent store, not a rebuildable cache
+
+Bar Apps delete Telemetry files after their retention period (90 days by default), but the Dashboard has to show usage forever. So the Dashboard imports each file into its own Archive and keeps it permanently, and the Bar App files are only how the data arrives. The alternative was to keep the Dashboard store as a cache that can be rebuilt from the files and force every Bar App's retention to forever. We rejected it because history would then depend on Bar App settings, reinstalls and Telemetry Folder moves. The consequence: the Archive can't be rebuilt from the files, so deleting it loses history, and it needs to be backed up.
