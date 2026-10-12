@@ -10,20 +10,50 @@ public enum BundledFeeds {
     }
 
     public static func prices() throws -> Data {
-        try data(named: "litellm-prices")
+        try data(named: "litellm-prices", in: resourceBundle)
     }
 
     public static func exchangeRates() throws -> Data {
-        try data(named: "exchange-rates")
+        try data(named: "exchange-rates", in: resourceBundle)
     }
 
-    private static func data(named name: String) throws -> Data {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Resources") else {
+    /// SwiftPM's name for this target's resource bundle.
+    static let bundleName = "BarUI_BarUICore.bundle"
+
+    /// `Bundle.module` stops the app with `fatalError` when the resource
+    /// bundle isn't where SwiftPM put it at build time, which is the case in
+    /// an installed app. Looking it up here lets a missing bundle surface as
+    /// `Missing` instead. Checked in order: the app's Resources folder (where
+    /// `make bundle` copies it), beside the executable (`swift run`), and
+    /// beside the test bundle (`swift test`).
+    private static let resourceBundle: Bundle? = {
+        let beside = Bundle(for: BundleMarker.self).bundleURL.deletingLastPathComponent()
+        let folders = [Bundle.main.resourceURL, Bundle.main.bundleURL, Bundle.main.executableURL?.deletingLastPathComponent(), beside]
+        return locateBundle(in: folders.compactMap { $0 })
+    }()
+
+    static func locateBundle(in folders: [URL]) -> Bundle? {
+        for folder in folders {
+            let candidate = folder.appendingPathComponent(bundleName, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue,
+               let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+        return nil
+    }
+
+    static func data(named name: String, in bundle: Bundle?) throws -> Data {
+        guard let url = bundle?.url(forResource: name, withExtension: "json", subdirectory: "Resources") else {
             throw Missing(name: name)
         }
         return try Data(contentsOf: url)
     }
 }
+
+/// Only here so `Bundle(for:)` can find the bundle this module was loaded from.
+private final class BundleMarker {}
 
 /// Model prices and exchange rates for API Cost. Each is downloaded at most
 /// daily and kept on disk; the bundled copy covers a first launch offline.

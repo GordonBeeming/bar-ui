@@ -25,6 +25,10 @@ bundle: build
 	rm -rf $(APP_BUNDLE)
 	mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources
 	cp .build/release/BarUI $(APP_BUNDLE)/Contents/MacOS/
+	# The bundled price list and exchange rates live in SwiftPM's resource
+	# bundle; inside the app it must sit in Resources so codesign seals it.
+	cp -R .build/release/BarUI_BarUICore.bundle $(APP_BUNDLE)/Contents/Resources/
+	cp Packaging/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
 	cp Packaging/Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	/usr/libexec/PlistBuddy \
 		-c "Set :CFBundleShortVersionString $(VERSION)" \
