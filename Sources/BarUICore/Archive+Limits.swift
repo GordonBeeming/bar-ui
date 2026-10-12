@@ -131,6 +131,41 @@ extension Archive {
         return samples
     }
 
+    /// Every reset the Archive holds for the Bar App, by Limit ID, oldest
+    /// first. A Window resets a handful of times a day at most, so the whole
+    /// list stays small.
+    public func limitResets(of app: BarApp) throws -> [String: [LimitReset]] {
+        let statement = try prepare("""
+            SELECT r.limit_id, r.time_unix_nano, r.utilization_last, r.next_resets_at,
+                   l.name, l.window_minutes, l.model_id
+            FROM limit_resets r
+            LEFT JOIN limits l ON l.app = r.app AND l.limit_id = r.limit_id
+            WHERE r.app = ?1
+            ORDER BY r.limit_id, r.time_unix_nano
+            """)
+        try statement.bind(.text(app.rawValue))
+        var byLimit: [String: [LimitReset]] = [:]
+        while try statement.step() {
+            guard let id = statement.text(at: 0) else {
+                continue
+            }
+            let descriptor = LimitDescriptor(
+                id: id,
+                name: statement.text(at: 4) ?? id,
+                windowDurationMinutes: statement.optionalInt64(at: 5).map { Int($0) },
+                modelID: statement.text(at: 6)
+            )
+            byLimit[id, default: []].append(LimitReset(
+                app: app,
+                limit: descriptor,
+                timeUnixNano: statement.int64(at: 1),
+                utilizationLast: statement.double(at: 2),
+                nextResetsAt: statement.optionalDouble(at: 3).map { Date(timeIntervalSince1970: $0) }
+            ))
+        }
+        return byLimit
+    }
+
     /// Every Limit the Archive holds for the Bar App, each with its
     /// utilisation samples and resets from `since` on (all of them when nil).
     /// A Limit with nothing in the range still comes back, so it can say so.

@@ -22,6 +22,31 @@ struct LimitHistoryRowTests {
         #expect(row.averageUnusedAtReset == 45)
     }
 
+    @Test("The average and last reset come from all resets, not just the chart's range")
+    func averageBeyondTheRange() throws {
+        let weekly = LimitDescriptor(id: "weekly_all", name: "Weekly (all models)", windowDurationMinutes: 10_080, modelID: nil)
+        let history = LimitHistory(
+            app: .claudeBar,
+            limit: weekly,
+            utilization: [ArchivedSample(timeUnixNano: Self.nano(30 * 86_400), value: 20)],
+            latest: nil,
+            resets: []
+        )
+        let older = [(1, 60.0), (8, 40.0), (15, 5.0)].map { day, used in
+            LimitReset(app: .claudeBar, limit: weekly, timeUnixNano: Self.nano(day * 86_400), utilizationLast: used, nextResetsAt: nil)
+        }
+
+        let row = LimitHistoryRow(history: history, averageResets: older, now: Self.date(30 * 86_400))
+
+        // Days 1 and 8 are inside the last 5 weeks and average 40% and 60%
+        // unused to 50%; day 15, at 5% used, is too quiet to count, but it is
+        // still the last reset.
+        let average = try #require(row.averageUnusedAtReset)
+        #expect(abs(average - 50) < 1e-9)
+        #expect(row.averageLabel == "last 5 weeks")
+        #expect(row.unusedAtLastReset == 95)
+    }
+
     @Test("With no resets there is nothing to report as Unused at Reset")
     func noResets() {
         let row = LimitHistoryRow(history: Self.history(utilization: [(0, 10), (300, 20)], resets: []))

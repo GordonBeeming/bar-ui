@@ -49,6 +49,19 @@ struct ResetImportTests {
         #expect(later.first?.resets.isEmpty == true)
     }
 
+    @Test("All of a Bar App's resets are readable by Limit, whatever range a chart shows")
+    func allResetsByLimit() async throws {
+        let fixture = try ImportFixture()
+        try fixture.copyFixture("codexbar-logs-2026-10-12.jsonl", to: fixture.codexFolder)
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+
+        let inRange = try await fixture.archive.limitHistories(of: .codexBar, since: nil).first?.resets ?? []
+        let byLimit = try await fixture.archive.limitResets(of: .codexBar)
+
+        #expect(!inRange.isEmpty)
+        #expect(byLimit["codex:10080"]?.map(\.timeUnixNano) == inRange.map(\.timeUnixNano))
+    }
+
     @Test("Resets survive the Bar App deleting its files")
     func survivesDeletedFiles() async throws {
         let fixture = try ImportFixture()

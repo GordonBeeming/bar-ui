@@ -86,7 +86,7 @@ private struct LimitHistoryRowView: View {
                     caption: row.latestSampleAt.map { "used, as of \($0.formatted(Self.sampleFormat))" } ?? "used"
                 )
                 stat(row.unusedAtLastReset.map(DisplayFormat.points) ?? "None yet", caption: "unused at last reset")
-                stat(row.averageUnusedAtReset.map(DisplayFormat.points) ?? "None yet", caption: "average unused at reset")
+                stat(row.averageUnusedAtReset.map(DisplayFormat.points) ?? "None yet", caption: "avg unused at reset · \(row.averageLabel)")
             }
 
             chart
