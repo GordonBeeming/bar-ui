@@ -7,6 +7,10 @@ struct ContentView: View {
     /// with Tracking off, one folder listing, so a short interval is cheap.
     private static let refreshInterval: Duration = .seconds(2)
 
+    /// Bar Apps sample every few minutes at most, so importing more often
+    /// than this would mostly find nothing new.
+    private static let importInterval: Duration = .seconds(15)
+
     private static let home = FileManager.default.homeDirectoryForCurrentUser
 
     @State private var selection: SidebarItem? = .initial
@@ -15,6 +19,7 @@ struct ContentView: View {
         preferences: SystemPreferences(),
         homeDirectory: Self.home
     ))
+    let archive: ArchiveOpening
     private let remote = BarAppRemote(opener: WorkspaceURLOpener())
 
     var body: some View {
@@ -38,10 +43,31 @@ struct ContentView: View {
         .task {
             await pollBarApps()
         }
+        .task {
+            await importTelemetry()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Coming back from a Bar App's settings is the moment a change is
             // most likely, so don't make the person wait for the next poll.
             monitor.refresh()
+            Task {
+                await archive.overview?.refresh(statuses: monitor.statuses)
+            }
+        }
+    }
+
+    private func importTelemetry() async {
+        guard let overview = archive.overview else {
+            return
+        }
+        while !Task.isCancelled {
+            await overview.refresh(statuses: monitor.statuses)
+            do {
+                try await Task.sleep(for: Self.importInterval)
+            } catch {
+                // Cancelled with the window; stop importing for it.
+                return
+            }
         }
     }
 
@@ -76,7 +102,7 @@ struct ContentView: View {
     private func detail(for item: SidebarItem) -> some View {
         switch item {
         case .overview:
-            OverviewView()
+            OverviewView(overview: archive.overview, archiveFailure: archive.failure)
         case .barApp(let app):
             BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote)
         case .archive:

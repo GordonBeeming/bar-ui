@@ -16,7 +16,8 @@ let package = Package(
         ),
         .testTarget(
             name: "BarUICoreTests",
-            dependencies: ["BarUICore"]
+            dependencies: ["BarUICore"],
+            resources: [.copy("Fixtures")]
         )
     ]
 )
