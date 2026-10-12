@@ -19,18 +19,19 @@ struct ApiCostTests {
         ApiCost(tokensByModel: tokens, prices: PriceTable(prices: prices))
     }
 
-    @Test(
-        "Each Token Type is priced at its own rate",
-        arguments: [
-            (TokenType.input, Int64(1_000_000), 5.0),
-            (.output, 1_000_000, 25.0),
-            (.cacheRead, 1_000_000, 0.5),
-            (.cacheWrite5m, 1_000_000, 6.25),
-            (.cacheWrite, 1_000_000, 6.25),
-            (.cacheWrite1h, 1_000_000, 10.0),
-            (.input, 250_000, 1.25)
-        ]
-    )
+    // Typed up front: inferred inside the @Test macro, this list can take the
+    // compiler past its type-check time limit on slower machines.
+    private static let ratesPerType: [(TokenType, Int64, Double)] = [
+        (.input, 1_000_000, 5.0),
+        (.output, 1_000_000, 25.0),
+        (.cacheRead, 1_000_000, 0.5),
+        (.cacheWrite5m, 1_000_000, 6.25),
+        (.cacheWrite, 1_000_000, 6.25),
+        (.cacheWrite1h, 1_000_000, 10.0),
+        (.input, 250_000, 1.25)
+    ]
+
+    @Test("Each Token Type is priced at its own rate", arguments: ratesPerType)
     func pricedPerTokenType(type: TokenType, tokens: Int64, expectedUSD: Double) {
         let cost = Self.cost(["m": [type: tokens]], ["m": Self.full])
 

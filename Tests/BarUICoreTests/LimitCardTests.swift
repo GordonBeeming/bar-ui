@@ -71,16 +71,20 @@ struct LimitCardTests {
         #expect(cards.map(\.severity.label) == [nil, "Running low", "Running low", "Near limit", "Near limit"])
     }
 
-    @Test("Time until reset reads as a countdown", arguments: [
-        (TimeInterval(2 * 3_600 + 14 * 60 + 30), "Resets in 2h 14m"),
-        (TimeInterval(14 * 60 + 59), "Resets in 14m"),
-        (TimeInterval(40), "Resets in under a minute"),
-        (TimeInterval(3 * 86_400 + 4 * 3_600 + 59 * 60), "Resets in 3d 4h"),
-        (TimeInterval(2 * 86_400), "Resets in 2d"),
-        (TimeInterval(3_600), "Resets in 1h"),
-        (TimeInterval(0), "Resetting now"),
-        (TimeInterval(-120), "Resetting now")
-    ])
+    // Typed up front: inferred inside the @Test macro, this list takes the
+    // compiler past its type-check time limit on slower machines.
+    private static let countdowns: [(TimeInterval, String)] = [
+        (2 * 3_600 + 14 * 60 + 30, "Resets in 2h 14m"),
+        (14 * 60 + 59, "Resets in 14m"),
+        (40, "Resets in under a minute"),
+        (3 * 86_400 + 4 * 3_600 + 59 * 60, "Resets in 3d 4h"),
+        (2 * 86_400, "Resets in 2d"),
+        (3_600, "Resets in 1h"),
+        (0, "Resetting now"),
+        (-120, "Resetting now")
+    ]
+
+    @Test("Time until reset reads as a countdown", arguments: countdowns)
     func resetCountdown(resetsIn: TimeInterval, expected: String) {
         let limit = Self.limit(.codexBar, "codex:10080", "Weekly", minutes: 10080, used: 1, resetsIn: resetsIn)
 
