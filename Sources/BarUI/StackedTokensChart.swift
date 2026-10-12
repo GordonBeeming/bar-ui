@@ -10,6 +10,19 @@ struct StackedTokensChart: View {
     let unit: Calendar.Component
     var compact = false
 
+    @State private var pointerDate: Date?
+
+    private var hoveredBucket: TokenUsage.Bucket? {
+        pointerDate.flatMap { usage.bucket(containing: $0, component: unit) }
+    }
+
+    private var bucketExtent: ClosedRange<Date>? {
+        guard let first = usage.buckets.first?.start, let last = usage.buckets.last?.start else {
+            return nil
+        }
+        return first...last
+    }
+
     var body: some View {
         Chart {
             ForEach(usage.buckets, id: \.start) { bucket in
@@ -23,7 +36,14 @@ struct StackedTokensChart: View {
                     }
                 }
             }
+            if let bucket = hoveredBucket, let extent = bucketExtent {
+                HoverRule(date: bucket.start.addingTimeInterval(bucketMidpoint(bucket)), extent: extent) {
+                    callout(for: bucket)
+                }
+            }
         }
+        .chartXSelection(value: $pointerDate)
+        .edgeSafeTimeAxis()
         .chartForegroundStyleScale(
             domain: BarApp.allCases.map(\.displayName),
             range: BarApp.allCases.map(\.brandColor)
@@ -39,6 +59,28 @@ struct StackedTokensChart: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Half a bucket, so the rule sits on the middle of the bar rather than its left edge.
+    private func bucketMidpoint(_ bucket: TokenUsage.Bucket) -> TimeInterval {
+        guard let end = Calendar.current.date(byAdding: unit, value: 1, to: bucket.start) else {
+            return 0
+        }
+        return end.timeIntervalSince(bucket.start) / 2
+    }
+
+    private func callout(for bucket: TokenUsage.Bucket) -> some View {
+        ChartCallout {
+            Text(bucket.rangeText(component: unit))
+                .fontWeight(.semibold)
+            ForEach(BarApp.allCases, id: \.self) { app in
+                if let tokens = bucket.tokensByApp[app], tokens > 0 {
+                    Text("\(app.displayName): \(tokens.formatted())")
+                }
+            }
+            Text("Total: \(bucket.tokensByApp.values.reduce(0, +).formatted())")
+                .fontWeight(.semibold)
         }
     }
 }

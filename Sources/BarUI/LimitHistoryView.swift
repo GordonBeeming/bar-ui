@@ -68,6 +68,8 @@ private struct LimitHistoryRowView: View {
     let brand: Color
     let range: TimeRange
 
+    @State private var pointerDate: Date?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
@@ -101,6 +103,7 @@ private struct LimitHistoryRowView: View {
         .accessibilityElement(children: .contain)
     }
 
+    private static let hoverFormat = Date.FormatStyle().day().month(.abbreviated).hour().minute()
     private static let sampleFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
     private func stat(_ value: String, caption: String) -> some View {
@@ -114,6 +117,17 @@ private struct LimitHistoryRowView: View {
         }
         .padding(.leading, 12)
         .accessibilityElement(children: .combine)
+    }
+
+    private var hover: LimitHistoryRow.Hover? {
+        pointerDate.flatMap { row.hover(at: $0) }
+    }
+
+    private var dataExtent: ClosedRange<Date>? {
+        guard let first = row.segments.first?.first?.date, let last = row.segments.last?.last?.date else {
+            return nil
+        }
+        return first...last
     }
 
     private var chart: some View {
@@ -144,7 +158,22 @@ private struct LimitHistoryRowView: View {
                             .foregroundStyle(.secondary)
                     }
             }
+            if let hover, let extent = dataExtent {
+                HoverRule(date: hover.point.date, extent: extent) {
+                    ChartCallout {
+                        Text("\(hover.point.date.formatted(Self.hoverFormat)) · \(DisplayFormat.points(hover.point.percent)) used")
+                        if let reset = hover.reset {
+                            Text("Reset: \(DisplayFormat.points(reset.unusedPercent)) unused at reset")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                PointMark(x: .value("Time", hover.point.date), y: .value("Used", hover.point.percent))
+                    .foregroundStyle(brand)
+            }
         }
+        .chartXSelection(value: $pointerDate)
+        .edgeSafeTimeAxis()
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(values: [0, 50, 100]) { value in
