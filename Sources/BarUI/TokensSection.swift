@@ -3,14 +3,15 @@ import Charts
 import SwiftUI
 
 /// Tokens over time, stacked by Bar App, with the tiles that sum the same
-/// range. One range control drives both so they can't disagree.
+/// range. One range control drives both so they can't disagree. The range
+/// belongs to the Overview, which also uses it for the Events list.
 struct TokensSection: View {
     let overview: LimitsOverview
     let now: Date
 
     @Environment(PricingCatalog.self) private var pricing
     @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
-    @State private var range: TokenRange = .week
+    @Binding var range: TokenRange
 
     var body: some View {
         let usage = overview.tokenUsage(range: range, now: now)

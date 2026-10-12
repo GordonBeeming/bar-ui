@@ -11,6 +11,7 @@ public final class LimitsOverview {
     public private(set) var tokenSamples: [TokenSample] = []
     private var availableNow: [AvailablePerk] = []
     private var goneEver: [GonePerk] = []
+    private var allEvents: [OverviewEvent] = []
     public private(set) var states: [BarApp: TrackingState] = [:]
     /// Why the last refresh couldn't read everything, for the Overview to show.
     public private(set) var problem: String?
@@ -60,6 +61,11 @@ public final class LimitsOverview {
 
     public func gonePerks(of app: BarApp) -> [GonePerk] {
         goneEver.filter { $0.app == app }
+    }
+
+    /// The Events list for a range, newest first, from every Bar App.
+    public func events(range: TokenRange, now: Date) -> [OverviewEvent] {
+        OverviewEvent.within(allEvents, range: range, now: now)
     }
 
     /// Imports what's new and reloads the Overview. Returns once a pass that
@@ -123,6 +129,22 @@ public final class LimitsOverview {
         }
         do {
             tokenSamples = try await archive.tokenSamples()
+        } catch {
+            problems.append(error.localizedDescription)
+        }
+
+        do {
+            var histories: [LimitHistory] = []
+            for app in BarApp.allCases {
+                histories += try await archive.limitHistories(of: app, since: nil)
+            }
+            allEvents = OverviewEvent.timeline(
+                histories: histories,
+                limitEvents: try await archive.limitLifecycleEvents(),
+                trackingStarts: try await archive.trackingStarts(),
+                perkAvailable: try await archive.perkAvailableEvents(),
+                gonePerks: goneEver
+            )
         } catch {
             problems.append(error.localizedDescription)
         }

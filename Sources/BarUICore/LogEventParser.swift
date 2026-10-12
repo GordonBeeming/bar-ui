@@ -21,6 +21,9 @@ public struct LimitReset: Sendable, Hashable {
 public struct LogParseResult: Sendable, Equatable {
     public let resets: [LimitReset]
     public let perkGoneEvents: [PerkGoneEvent]
+    public let limitEvents: [LimitLifecycleEvent]
+    public let trackingStarts: [TrackingStartedEvent]
+    public let perkAvailableEvents: [PerkAvailableEvent]
     /// Lines, resources and `bar.limit.reset` and `bar.perk.*` events that broke the Telemetry
     /// Spec and were dropped. Events the Dashboard doesn't read aren't counted.
     public let droppedRecords: Int
@@ -35,15 +38,21 @@ public enum LogEventParser {
     private static let resetEventName = "bar.limit.reset"
     private static let perkAvailableEventName = "bar.perk.available"
     private static let perkGoneEventName = "bar.perk.gone"
+    private static let limitAppearedEventName = "bar.limit.appeared"
+    private static let limitDisappearedEventName = "bar.limit.disappeared"
+    private static let trackingStartedEventName = "bar.tracking.started"
 
     public static func parse(_ data: Data, from app: BarApp) -> LogParseResult {
         guard let lastNewline = data.lastIndex(of: newline) else {
-            return LogParseResult(resets: [], perkGoneEvents: [], droppedRecords: 0, consumedByteCount: 0)
+            return LogParseResult(resets: [], perkGoneEvents: [], limitEvents: [], trackingStarts: [], perkAvailableEvents: [], droppedRecords: 0, consumedByteCount: 0)
         }
         let complete = data[data.startIndex..<lastNewline]
         let decoder = JSONDecoder()
         var resets: [LimitReset] = []
         var perkGone: [PerkGoneEvent] = []
+        var perkAvailable: [PerkAvailableEvent] = []
+        var limitEvents: [LimitLifecycleEvent] = []
+        var trackingStarts: [TrackingStartedEvent] = []
         var dropped = 0
 
         for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
@@ -68,12 +77,24 @@ public enum LogEventParser {
                                 dropped += 1
                             }
                         case perkAvailableEventName, perkGoneEventName:
-                            // An available event is held to the same rules even
-                            // though only gone events are kept.
                             if let event = perkEvent(from: record, app: app) {
                                 if record.eventName == perkGoneEventName {
                                     perkGone.append(event)
+                                } else {
+                                    perkAvailable.append(PerkAvailableEvent(gone: event))
                                 }
+                            } else {
+                                dropped += 1
+                            }
+                        case limitAppearedEventName, limitDisappearedEventName:
+                            if let event = limitEvent(from: record, app: app) {
+                                limitEvents.append(event)
+                            } else {
+                                dropped += 1
+                            }
+                        case trackingStartedEventName:
+                            if let event = trackingStarted(from: record, app: app) {
+                                trackingStarts.append(event)
                             } else {
                                 dropped += 1
                             }
@@ -88,9 +109,30 @@ public enum LogEventParser {
         return LogParseResult(
             resets: resets,
             perkGoneEvents: perkGone,
+            limitEvents: limitEvents,
+            trackingStarts: trackingStarts,
+            perkAvailableEvents: perkAvailable,
             droppedRecords: dropped,
             consumedByteCount: lastNewline - data.startIndex + 1
         )
+    }
+
+    private static func limitEvent(from record: LogRecord, app: BarApp) -> LimitLifecycleEvent? {
+        guard let limit = MetricsParser.limitDescriptor(from: record.attributes ?? []),
+              let time = record.timeUnixNano, time > 0 else {
+            return nil
+        }
+        let kind: LimitLifecycleEvent.Kind = record.eventName == limitAppearedEventName ? .appeared : .disappeared
+        return LimitLifecycleEvent(app: app, limit: limit, kind: kind, timeUnixNano: time)
+    }
+
+    private static func trackingStarted(from record: LogRecord, app: BarApp) -> TrackingStartedEvent? {
+        guard let minutes = record.attributes?.attribute("tracking.interval_minutes")?.intValue,
+              TrackingSettings.intervalRange.contains(Int(clamping: minutes)),
+              let time = record.timeUnixNano, time > 0 else {
+            return nil
+        }
+        return TrackingStartedEvent(app: app, intervalMinutes: Int(clamping: minutes), timeUnixNano: time)
     }
 
     private static func perkEvent(from record: LogRecord, app: BarApp) -> PerkGoneEvent? {

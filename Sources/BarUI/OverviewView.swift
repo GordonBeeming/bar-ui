@@ -6,6 +6,8 @@ struct OverviewView: View {
     let overview: LimitsOverview?
     let archiveFailure: String?
 
+    @State private var range: TokenRange = .week
+
     var body: some View {
         Group {
             if let overview {
@@ -44,7 +46,8 @@ struct OverviewView: View {
                         ProblemLabel(problem: problem)
                     }
                     LimitsStrip(cards: cards)
-                    TokensSection(overview: overview, now: now)
+                    TokensSection(overview: overview, now: now, range: $range)
+                    EventsSection(events: overview.events(range: range, now: now), now: now)
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 16)

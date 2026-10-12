@@ -91,6 +91,9 @@ public struct TelemetryImporter: Sendable {
         let resets: [LimitReset]
         let perkSamples: [PerkSample]
         let perkGoneEvents: [PerkGoneEvent]
+        var limitEvents: [LimitLifecycleEvent] = []
+        var trackingStarts: [TrackingStartedEvent] = []
+        var perkAvailableEvents: [PerkAvailableEvent] = []
         let consumed: Int
         let dropped: Int
         if app.isLogsFileName(name) {
@@ -100,6 +103,9 @@ public struct TelemetryImporter: Sendable {
             resets = result.resets
             perkSamples = []
             perkGoneEvents = result.perkGoneEvents
+            limitEvents = result.limitEvents
+            trackingStarts = result.trackingStarts
+            perkAvailableEvents = result.perkAvailableEvents
             consumed = result.consumedByteCount
             dropped = result.droppedRecords
         } else {
@@ -121,6 +127,9 @@ public struct TelemetryImporter: Sendable {
             resets: resets,
             perkSamples: perkSamples,
             perkGoneEvents: perkGoneEvents,
+            limitEvents: limitEvents,
+            trackingStarts: trackingStarts,
+            perkAvailableEvents: perkAvailableEvents,
             progress: ImportProgress(
                 app: app,
                 fileName: name,

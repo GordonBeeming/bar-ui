@@ -29,6 +29,11 @@ public enum TokenRange: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// When the range begins, counting back from `now`. Nil for All time.
+    public func start(now: Date) -> Date? {
+        span.map { now.addingTimeInterval(-$0) }
+    }
+
     /// A day of data is too few points at daily resolution to show a shape.
     fileprivate var bucketComponent: Calendar.Component {
         self == .day ? .hour : .day
@@ -77,7 +82,7 @@ public struct TokenUsage: Sendable, Equatable {
     }
 
     public init(samples: [TokenSample], range: TokenRange, now: Date, calendar: Calendar = .current) {
-        let windowStart = range.span.map { now.addingTimeInterval(-$0) }
+        let windowStart = range.start(now: now)
         let increases = Self.increases(in: samples)
             .filter { increase in
                 let time = Date(unixNano: increase.timeUnixNano)

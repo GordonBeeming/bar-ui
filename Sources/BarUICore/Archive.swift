@@ -79,7 +79,8 @@ public struct ArchiveError: Error, LocalizedError, Sendable {
 /// imported. It is the store of record, not a cache of the Bar Apps' files:
 /// those get deleted by retention, so nothing here is ever rebuilt from them.
 public actor Archive {
-    private static let schemaVersion: Int32 = 1
+    /// 2: Limit lifecycle, Tracking started and Perk available events are stored.
+    private static let schemaVersion: Int32 = 2
     private static let busyTimeoutMilliseconds: Int32 = 10_000
 
     private let connection: Connection
@@ -112,12 +113,12 @@ public actor Archive {
     /// Stores the samples and the file's new read position together, so a
     /// crash part way can't move the position past samples that were lost.
     /// Samples already in the Archive are left as they are.
-    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], perkSamples: [PerkSample] = [], perkGoneEvents: [PerkGoneEvent] = [], progress: ImportProgress) throws {
-        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents)
+    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], perkSamples: [PerkSample] = [], perkGoneEvents: [PerkGoneEvent] = [], limitEvents: [LimitLifecycleEvent] = [], trackingStarts: [TrackingStartedEvent] = [], perkAvailableEvents: [PerkAvailableEvent] = [], progress: ImportProgress) throws {
+        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents, limitEvents: limitEvents, trackingStarts: trackingStarts, perkAvailableEvents: perkAvailableEvents)
         _ = try record(records, progress: progress, expecting: .anything)
     }
 
-    /// Like `record(_:tokenSamples:resets:perkSamples:perkGoneEvents:progress:)`,
+    /// Like `record(_:tokenSamples:resets:perkSamples:perkGoneEvents:limitEvents:trackingStarts:perkAvailableEvents:progress:)`,
     /// but only if the file's stored position is still `previous`, the one the
     /// records were read from (nil when the file had none). Another window or
     /// Bar UI process importing the same file may have moved it on in the
@@ -130,10 +131,13 @@ public actor Archive {
         resets: [LimitReset] = [],
         perkSamples: [PerkSample] = [],
         perkGoneEvents: [PerkGoneEvent] = [],
+        limitEvents: [LimitLifecycleEvent] = [],
+        trackingStarts: [TrackingStartedEvent] = [],
+        perkAvailableEvents: [PerkAvailableEvent] = [],
         progress: ImportProgress,
         readFrom previous: ImportProgress?
     ) throws -> Bool {
-        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents)
+        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents, limitEvents: limitEvents, trackingStarts: trackingStarts, perkAvailableEvents: perkAvailableEvents)
         return try record(records, progress: progress, expecting: .exactly(previous))
     }
 
@@ -143,6 +147,9 @@ public actor Archive {
         let resets: [LimitReset]
         let perkSamples: [PerkSample]
         let perkGoneEvents: [PerkGoneEvent]
+        let limitEvents: [LimitLifecycleEvent]
+        let trackingStarts: [TrackingStartedEvent]
+        let perkAvailableEvents: [PerkAvailableEvent]
     }
 
     private enum ExpectedProgress {
@@ -156,6 +163,9 @@ public actor Archive {
         let resets = records.resets
         let perkSamples = records.perkSamples
         let perkGoneEvents = records.perkGoneEvents
+        let limitEvents = records.limitEvents
+        let trackingStarts = records.trackingStarts
+        let perkAvailableEvents = records.perkAvailableEvents
         // IMMEDIATE takes the write lock before the position is checked, so
         // no other connection can move it between the check and the write.
         try execute("BEGIN IMMEDIATE", operation: "start an import")
@@ -184,6 +194,19 @@ public actor Archive {
             let insertReset = try prepare("""
                 INSERT OR IGNORE INTO limit_resets (app, limit_id, time_unix_nano, utilization_last, next_resets_at)
                 VALUES (?1, ?2, ?3, ?4, ?5)
+                """)
+            let insertLimitEvent = try prepare("""
+                INSERT OR IGNORE INTO limit_events (app, limit_id, kind, time_unix_nano)
+                VALUES (?1, ?2, ?3, ?4)
+                """)
+            let insertTrackingStart = try prepare("""
+                INSERT OR IGNORE INTO tracking_starts (app, time_unix_nano, interval_minutes)
+                VALUES (?1, ?2, ?3)
+                """)
+            let insertAvailable = try prepare("""
+                INSERT OR IGNORE INTO perk_available_events
+                    (app, kind, currency, time_unix_nano, quantity, perk_id, expires_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
             func describeLimit(of app: BarApp, _ limit: LimitDescriptor, at time: Int64) throws {
                 try describe.run(
@@ -259,6 +282,33 @@ public actor Archive {
                     .text(event.perkID ?? ""),
                     event.expiresAt.map { .integer($0) } ?? .null,
                     event.reportedReason.map { .text($0.rawValue) } ?? .null
+                )
+            }
+            for event in limitEvents {
+                try describeLimit(of: event.app, event.limit, at: event.timeUnixNano)
+                try insertLimitEvent.run(
+                    .text(event.app.rawValue),
+                    .text(event.limit.id),
+                    .text(event.kind.rawValue),
+                    .integer(event.timeUnixNano)
+                )
+            }
+            for event in trackingStarts {
+                try insertTrackingStart.run(
+                    .text(event.app.rawValue),
+                    .integer(event.timeUnixNano),
+                    .integer(Int64(event.intervalMinutes))
+                )
+            }
+            for event in perkAvailableEvents {
+                try insertAvailable.run(
+                    .text(event.app.rawValue),
+                    .text(event.kind.rawValue),
+                    .text(event.currency ?? ""),
+                    .integer(event.timeUnixNano),
+                    event.quantity.map { .real($0) } ?? .null,
+                    .text(event.perkID ?? ""),
+                    event.expiresAt.map { .integer($0) } ?? .null
                 )
             }
             try prepare("""
@@ -347,6 +397,77 @@ public actor Archive {
             ))
         }
         return perks
+    }
+
+    public func limitLifecycleEvents() throws -> [LimitLifecycleEvent] {
+        let statement = try prepare("""
+            SELECT e.app, e.limit_id, e.kind, e.time_unix_nano, l.name, l.window_minutes, l.model_id
+            FROM limit_events e
+            JOIN limits l ON l.app = e.app AND l.limit_id = e.limit_id
+            ORDER BY e.time_unix_nano, e.app, e.limit_id
+            """)
+        var events: [LimitLifecycleEvent] = []
+        while try statement.step() {
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+                  let id = statement.text(at: 1),
+                  let kindName = statement.text(at: 2), let kind = LimitLifecycleEvent.Kind(rawValue: kindName),
+                  let name = statement.text(at: 4) else {
+                continue
+            }
+            events.append(LimitLifecycleEvent(
+                app: app,
+                limit: LimitDescriptor(
+                    id: id,
+                    name: name,
+                    windowDurationMinutes: statement.optionalInt64(at: 5).map { Int($0) },
+                    modelID: statement.text(at: 6)
+                ),
+                kind: kind,
+                timeUnixNano: statement.int64(at: 3)
+            ))
+        }
+        return events
+    }
+
+    public func trackingStarts() throws -> [TrackingStartedEvent] {
+        let statement = try prepare("SELECT app, time_unix_nano, interval_minutes FROM tracking_starts ORDER BY time_unix_nano, app")
+        var events: [TrackingStartedEvent] = []
+        while try statement.step() {
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName) else {
+                continue
+            }
+            events.append(TrackingStartedEvent(
+                app: app,
+                intervalMinutes: Int(statement.int64(at: 2)),
+                timeUnixNano: statement.int64(at: 1)
+            ))
+        }
+        return events
+    }
+
+    public func perkAvailableEvents() throws -> [PerkAvailableEvent] {
+        let statement = try prepare("""
+            SELECT app, kind, currency, quantity, perk_id, expires_at, time_unix_nano
+            FROM perk_available_events
+            ORDER BY time_unix_nano, rowid
+            """)
+        var events: [PerkAvailableEvent] = []
+        while try statement.step() {
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+                  let kindName = statement.text(at: 1), let kind = PerkKind(rawValue: kindName) else {
+                continue
+            }
+            events.append(PerkAvailableEvent(
+                app: app,
+                kind: kind,
+                currency: statement.text(at: 2).flatMap { $0.isEmpty ? nil : $0 },
+                quantity: statement.optionalDouble(at: 3),
+                perkID: statement.text(at: 4).flatMap { $0.isEmpty ? nil : $0 },
+                expiresAt: statement.optionalInt64(at: 5),
+                timeUnixNano: statement.int64(at: 6)
+            ))
+        }
+        return events
     }
 
     public func progress(of app: BarApp, fileName: String) throws -> ImportProgress? {
@@ -534,6 +655,7 @@ public actor Archive {
 
     private static func migrate(_ database: OpaquePointer) throws {
         try execute("PRAGMA journal_mode = WAL", on: database, operation: "turn on write-ahead logging")
+        let previousVersion = try userVersion(of: database)
         try execute("""
             CREATE TABLE IF NOT EXISTS limits (
                 app TEXT NOT NULL,
@@ -598,8 +720,51 @@ public actor Archive {
                 dropped_records INTEGER NOT NULL,
                 PRIMARY KEY (app, file_name)
             ) WITHOUT ROWID;
-            PRAGMA user_version = \(schemaVersion);
+            CREATE TABLE IF NOT EXISTS limit_events (
+                app TEXT NOT NULL,
+                limit_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                PRIMARY KEY (app, limit_id, kind, time_unix_nano)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS tracking_starts (
+                app TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                interval_minutes INTEGER NOT NULL,
+                PRIMARY KEY (app, time_unix_nano, interval_minutes)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS perk_available_events (
+                app TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                quantity REAL,
+                perk_id TEXT NOT NULL,
+                expires_at INTEGER
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS perk_available_events_identity ON perk_available_events (
+                app, kind, currency, time_unix_nano, perk_id, IFNULL(quantity, -1), IFNULL(expires_at, -1));
             """, on: database, operation: "create its tables")
+        if previousVersion > 0 && previousVersion < 2 {
+            // Logs files imported before these events were stored have their
+            // events only in the files. Reading them again recovers what
+            // retention hasn't deleted; every table ignores a row it has.
+            try execute("DELETE FROM imported_files WHERE file_name LIKE '%-logs-%'", on: database, operation: "queue earlier logs files to be read again")
+        }
+        try execute("PRAGMA user_version = \(schemaVersion)", on: database, operation: "record its version")
+    }
+
+    private static func userVersion(of database: OpaquePointer) throws -> Int32 {
+        var handle: OpaquePointer?
+        let result = sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &handle, nil)
+        guard result == SQLITE_OK, let handle else {
+            throw ArchiveError(operation: "read its version", message: String(cString: sqlite3_errmsg(database)), code: result)
+        }
+        defer { sqlite3_finalize(handle) }
+        guard sqlite3_step(handle) == SQLITE_ROW else {
+            throw ArchiveError(operation: "read its version", message: String(cString: sqlite3_errmsg(database)), code: SQLITE_ERROR)
+        }
+        return sqlite3_column_int(handle, 0)
     }
 
     private static func execute(_ sql: String, on database: OpaquePointer, operation: String) throws {

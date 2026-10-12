@@ -46,7 +46,6 @@ struct PerkEventParsingTests {
     func ignoresOtherEvents() {
         let data = PerkEventLine.logs(service: "claudebar", events: [
             .init(name: "bar.perk.available", kind: "guest_pass", time: time),
-            .init(name: "bar.limit.appeared", kind: nil, time: time),
             .init(name: "claude.something", kind: nil, time: time)
         ])
 
