@@ -20,7 +20,7 @@ Bar UI drops any record that doesn't conform, counts what it dropped, and links 
 | Metrics file | `<service.name>-metrics-YYYY-MM-DD.jsonl` |
 | Logs file | `<service.name>-logs-YYYY-MM-DD.jsonl` |
 | Date in the name | The UTC date the record was written. |
-| Permissions | Folder `0700`, files `0600`. |
+| Permissions | Files `0600`. A folder the Bar App creates is `0700`. A folder that already exists keeps its permissions, because it may be one the person chose. |
 
 Writers:
 
@@ -60,7 +60,7 @@ A **Limit** is identified by `limit.id`, which MUST stay the same for the same L
 
 | Attribute | Required | Meaning |
 |---|---|---|
-| `limit.id` | yes | Stable ID. Claude: the API's limit `kind`, plus `:<model id>` when the limit is scoped to a model (for example `session`, `weekly_all`, `weekly_scoped:claude-opus-4-1`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. When Codex doesn't report the window length, use `<bucket id>:<window label>` (for example `codex:primary`). That ID can change if the labels swap, so it's a last resort. |
+| `limit.id` | yes | Stable ID. Claude: the API's limit `kind`, plus `:<model id>` when the limit is scoped to a model (for example `session`, `weekly_all`, `weekly_scoped:claude-opus-4-1`). When the API gives a scoped limit only a display name and no model ID, use `<kind>:<display name>` (for example `weekly_scoped:Fable`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. When Codex doesn't report the window length, use `<bucket id>:<window label>` (for example `codex:primary`). Both fallbacks are a last resort, because the ID changes if the tool renames or swaps the label. Bar UI then sees a new Limit, and the old one disappears. |
 | `limit.name` | yes | Display name, for example `Weekly · Opus` |
 | `limit.window.duration_minutes` | when known | The **Window** length as an int, for example `300` or `10080`. Leave it out when the Bar App doesn't know it; never write `0`. Bar UI still shows the Limit, without the Window length. |
 | `model.id` | only when the tool says the Limit applies to one model | Never inferred. Codex doesn't scope its Limits to models today, so CodexBar leaves it out. |
