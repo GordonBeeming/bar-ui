@@ -112,9 +112,12 @@ Rules:
 |---|---|---|
 | `perk.kind` | yes | `reset_credit`, `guest_pass` or `credit_grant` |
 | `perk.currency` | for `credit_grant` | ISO 4217 code, for example `USD` |
-| `perk.expires_at` | if known | Unix seconds, as an int. On the gauge it is the earliest expiry among the available Perks of that kind. |
+| `perk.id` | if the tool identifies each Perk | The tool's own id for one Perk, a string. A point with a `perk.id` stands for that one Perk. |
+| `perk.expires_at` | if known | Unix seconds, as an int. On a point it is the earliest expiry among the Perks that point counts, which is that Perk's own expiry when the point carries a `perk.id`. |
 
-Bar UI keys a Perk series on `perk.kind` and `perk.currency` only. Every other attribute on the gauge, `perk.expires_at` included, is information and can change from sample to sample without starting a new series. When one sample has several points with the same key (two Guest Pass campaigns, say), Bar UI adds them up.
+Bar UI keys a Perk series on `perk.kind` and `perk.currency` only. Every other attribute on the gauge, `perk.expires_at` and `perk.id` included, is information and can change from sample to sample without starting a new series.
+
+When the tool identifies each Perk, the Bar App MUST write one point per Perk, each carrying its `perk.id`, plus `perk.expires_at` when it is known, so that each Perk's expiry is kept. A single point for three Perks would keep only the earliest of their expiries. Bar UI lists each such point as its own line and adds the points up for the series total. Points without a `perk.id` that share a key (two Guest Pass campaigns, say) are added into one line.
 
 ## 5. Events (logs)
 

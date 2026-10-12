@@ -133,8 +133,8 @@ extension Archive {
                 )
             }
             let insertPerk = try prepare("""
-                INSERT OR IGNORE INTO perk_samples (app, kind, currency, time_unix_nano, value, expires_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                INSERT OR IGNORE INTO perk_points (app, kind, currency, time_unix_nano, perk_id, value, expires_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
             for sample in records.perkSamples {
                 try insertPerk.run(
@@ -142,6 +142,7 @@ extension Archive {
                     .text(sample.kind.rawValue),
                     .text(sample.currency ?? ""),
                     .integer(sample.timeUnixNano),
+                    .text(sample.perkID ?? ""),
                     .real(sample.value),
                     sample.expiresAt.map { .integer($0) } ?? .null
                 )

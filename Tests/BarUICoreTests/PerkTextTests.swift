@@ -41,4 +41,42 @@ struct PerkTextTests {
         #expect(PerkText.label(for: .expired) == "Expired")
         #expect(PerkText.label(for: .unknown) == "Reason unknown")
     }
+
+    struct ItemLineCase: Sendable {
+        let kind: PerkKind
+        let currency: String?
+        let quantity: Double
+        let expiresAt: Date?
+        let expected: String
+    }
+
+    static let itemLineCases: [ItemLineCase] = [
+        ItemLineCase(kind: .resetCredit, currency: nil, quantity: 1, expiresAt: Date(timeIntervalSince1970: 1_792_800_000), expected: "1 Reset Credit \u{00B7} Expires 24 Oct 2026"),
+        ItemLineCase(kind: .guestPass, currency: nil, quantity: 2, expiresAt: nil, expected: "2 Guest Passes \u{00B7} No expiry known"),
+        ItemLineCase(kind: .creditGrant, currency: "AUD", quantity: 12.5, expiresAt: Date(timeIntervalSince1970: 1_792_800_000), expected: "$12.50 Credit Grant \u{00B7} Expires 24 Oct 2026")
+    ]
+
+    @Test("An item line says what it is and when it expires", arguments: PerkTextTests.itemLineCases)
+    func itemLine(_ testCase: ItemLineCase) {
+        let line = PerkText.itemLine(
+            kind: testCase.kind,
+            currency: testCase.currency,
+            item: AvailablePerkItem(quantity: testCase.quantity, perkID: "x", expiresAt: testCase.expiresAt),
+            locale: Locale(identifier: "en_AU"),
+            timeZone: TimeZone(identifier: "UTC") ?? .gmt
+        )
+        #expect(line == testCase.expected)
+    }
+
+    @Test("A group of one Perk with no id stays a single line; any other group lists its items")
+    func singleLineRule() {
+        let plain = AvailablePerkItem(quantity: 2, perkID: nil, expiresAt: nil)
+        let identified = AvailablePerkItem(quantity: 1, perkID: "a", expiresAt: nil)
+        func group(_ items: [AvailablePerkItem]) -> AvailablePerk {
+            AvailablePerk(app: .codexBar, kind: .resetCredit, currency: nil, items: items, sampledAt: Date(timeIntervalSince1970: 0))
+        }
+        #expect(!group([plain]).listsItems)
+        #expect(group([identified]).listsItems)
+        #expect(group([identified, identified]).listsItems)
+    }
 }

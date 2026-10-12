@@ -154,7 +154,15 @@ public enum MetricsParser {
               let expiresAt = PerkAttributes.expiresAt(in: attributes) else {
             return nil
         }
-        return PerkSample(app: app, kind: kind, currency: currency.value, timeUnixNano: time, value: value, expiresAt: expiresAt.value)
+        return PerkSample(
+            app: app,
+            kind: kind,
+            currency: currency.value,
+            timeUnixNano: time,
+            value: value,
+            expiresAt: expiresAt.value,
+            perkID: attributes.string("perk.id").flatMap { $0.isEmpty ? nil : $0 }
+        )
     }
 
     private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {

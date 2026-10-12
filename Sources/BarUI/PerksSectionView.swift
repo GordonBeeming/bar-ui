@@ -7,7 +7,6 @@ struct PerksSectionView: View {
     let available: [AvailablePerk]
     let gone: [GonePerk]
 
-    private static let dateFormat = Date.FormatStyle(date: .abbreviated, time: .omitted)
     private static let dateTimeFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
     var body: some View {
@@ -51,13 +50,29 @@ struct PerksSectionView: View {
     }
 
     private func availableRow(_ perk: AvailablePerk) -> some View {
-        row {
-            Text(PerkText.quantity(kind: perk.kind, quantity: perk.quantity, currency: perk.currency))
-                .fontWeight(.semibold)
-            Spacer(minLength: 12)
-            Text(perk.expiresAt.map { "Expires \($0.formatted(Self.dateFormat))" } ?? "No expiry known")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            row {
+                Text(PerkText.quantity(kind: perk.kind, quantity: perk.quantity, currency: perk.currency))
+                    .fontWeight(.semibold)
+                Spacer(minLength: 12)
+                if !perk.listsItems {
+                    Text(PerkText.expiry(perk.items.first?.expiresAt))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if perk.listsItems {
+                ForEach(perk.items, id: \.self) { item in
+                    Text(PerkText.itemLine(kind: perk.kind, currency: perk.currency, item: item))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 32)
+                        .padding(.trailing, 16)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private func goneRow(_ perk: GonePerk) -> some View {

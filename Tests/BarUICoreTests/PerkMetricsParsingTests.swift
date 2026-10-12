@@ -57,6 +57,25 @@ struct PerkMetricsParsingTests {
         #expect(result.perkSamples.map(\.value) == [2])
     }
 
+    @Test("Points with different Perk ids stay apart, each with its own expiry, and points without an id still add up")
+    func keepsPointsWithPerkIDs() throws {
+        let data = PerkLine.metrics(service: "codexbar", points: [
+            .init(kind: "reset_credit", value: 1, time: time, expiresAt: 1_792_000_000, perkID: "a"),
+            .init(kind: "reset_credit", value: 1, time: time, expiresAt: 1_792_600_000, perkID: "b"),
+            .init(kind: "reset_credit", value: 1, time: time, expiresAt: 1_793_000_000, perkID: "c"),
+            .init(kind: "reset_credit", value: 1, time: time, expiresAt: 1_794_000_000),
+            .init(kind: "reset_credit", value: 2, time: time, expiresAt: 1_795_000_000)
+        ])
+
+        let result = MetricsParser.parse(data, from: .codexBar)
+
+        let samples = result.perkSamples
+        #expect(samples.map { $0.perkID ?? "-" } == ["a", "b", "c", "-"])
+        #expect(samples.map(\.value) == [1, 1, 1, 3])
+        #expect(samples.map(\.expiresAt) == [1_792_000_000, 1_792_600_000, 1_793_000_000, 1_794_000_000])
+        #expect(result.droppedRecords == 0)
+    }
+
     @Test("Points that break the spec are dropped and counted")
     func dropsNonConforming() {
         let data = PerkLine.metrics(service: "claudebar", points: [
@@ -93,6 +112,7 @@ enum PerkLine {
         var expiresAt: Int64?
         var expiresAtText: String?
         var extraAttribute: (String, String)?
+        var perkID: String?
 
         init(
             kind: String,
@@ -101,7 +121,8 @@ enum PerkLine {
             time: Int64,
             expiresAt: Int64? = nil,
             expiresAtText: String? = nil,
-            extraAttribute: (String, String)? = nil
+            extraAttribute: (String, String)? = nil,
+            perkID: String? = nil
         ) {
             self.kind = kind
             self.currency = currency
@@ -110,6 +131,7 @@ enum PerkLine {
             self.expiresAt = expiresAt
             self.expiresAtText = expiresAtText
             self.extraAttribute = extraAttribute
+            self.perkID = perkID
         }
     }
 
@@ -140,6 +162,9 @@ enum PerkLine {
         }
         if let text = point.expiresAtText {
             attributes.append(["key": "perk.expires_at", "value": ["stringValue": text]])
+        }
+        if let perkID = point.perkID {
+            attributes.append(["key": "perk.id", "value": ["stringValue": perkID]])
         }
         if let (key, value) = point.extraAttribute {
             attributes.append(["key": key, "value": ["stringValue": value]])

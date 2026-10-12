@@ -77,14 +77,15 @@ public actor Archive {
                 next_resets_at REAL,
                 PRIMARY KEY (app, limit_id, time_unix_nano)
             ) WITHOUT ROWID;
-            CREATE TABLE IF NOT EXISTS perk_samples (
+            CREATE TABLE IF NOT EXISTS perk_points (
                 app TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 time_unix_nano INTEGER NOT NULL,
+                perk_id TEXT NOT NULL,
                 value REAL NOT NULL,
                 expires_at INTEGER,
-                PRIMARY KEY (app, kind, currency, time_unix_nano)
+                PRIMARY KEY (app, kind, currency, time_unix_nano, perk_id)
             ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS perk_gone_events (
                 app TEXT NOT NULL,
@@ -131,7 +132,25 @@ public actor Archive {
             CREATE UNIQUE INDEX IF NOT EXISTS perk_available_events_identity ON perk_available_events (
                 app, kind, currency, time_unix_nano, perk_id, IFNULL(quantity, -1), IFNULL(expires_at, -1));
             """, on: database, operation: "create its tables")
+        try carryOverPerkSamples(into: database)
         try execute("PRAGMA user_version = \(schemaVersion)", on: database, operation: "record its version")
+    }
+
+    /// An Archive written before Perks were kept per `perk.id` has its
+    /// readings in `perk_samples`, whose key has no room for an id. They carry
+    /// over as id-less points, and `OR IGNORE` makes every later open a no-op.
+    private static func carryOverPerkSamples(into database: OpaquePointer) throws {
+        let lookup = try Statement(
+            sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'perk_samples'",
+            database: database
+        )
+        guard try lookup.step() else {
+            return
+        }
+        try execute("""
+            INSERT OR IGNORE INTO perk_points (app, kind, currency, time_unix_nano, perk_id, value, expires_at)
+            SELECT app, kind, currency, time_unix_nano, '', value, expires_at FROM perk_samples
+            """, on: database, operation: "carry its Perk readings over")
     }
 
     private static func execute(_ sql: String, on database: OpaquePointer, operation: String) throws {
@@ -158,7 +177,7 @@ public actor Archive {
             SELECT EXISTS (SELECT 1 FROM limit_samples)
                 OR EXISTS (SELECT 1 FROM token_samples)
                 OR EXISTS (SELECT 1 FROM limit_resets)
-                OR EXISTS (SELECT 1 FROM perk_samples)
+                OR EXISTS (SELECT 1 FROM perk_points)
                 OR EXISTS (SELECT 1 FROM perk_gone_events)
                 OR EXISTS (SELECT 1 FROM perk_available_events)
                 OR EXISTS (SELECT 1 FROM limit_events)

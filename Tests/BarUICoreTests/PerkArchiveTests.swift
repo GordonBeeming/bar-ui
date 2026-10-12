@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import BarUICore
 
@@ -28,8 +29,82 @@ struct PerkArchiveTests {
             "reset_credit/-=2.0",
             "credit_grant/USD=12.5"
         ])
-        #expect(perks.map(\.expiresAt) == [Date(timeIntervalSince1970: 1_792_500_000), nil])
+        #expect(perks.map { $0.items.map(\.expiresAt) } == [[Date(timeIntervalSince1970: 1_792_500_000)], [nil]])
         #expect(perks.map(\.sampledAt) == [Date(unixNano: t0 + minute), Date(unixNano: t0 + minute)])
+    }
+
+    @Test("Each Perk the Bar App identifies is its own item, soonest expiry first and unknown last, under one total")
+    func itemsPerPerk() async throws {
+        let fixture = try ImportFixture()
+        try fixture.write(
+            PerkLine.metrics(service: "codexbar", points: [
+                .init(kind: "reset_credit", value: 1, time: t0, expiresAt: 1_792_000_000, perkID: "old")
+            ]) + PerkLine.metrics(service: "codexbar", points: [
+                .init(kind: "reset_credit", value: 1, time: t0 + minute, expiresAt: 1_793_000_000, perkID: "c"),
+                .init(kind: "reset_credit", value: 1, time: t0 + minute, perkID: "none"),
+                .init(kind: "reset_credit", value: 1, time: t0 + minute, expiresAt: 1_792_000_000, perkID: "a"),
+                .init(kind: "reset_credit", value: 1, time: t0 + minute, expiresAt: 1_792_600_000, perkID: "b")
+            ]),
+            named: "codexbar-metrics-2026-10-12.jsonl", in: fixture.codexFolder
+        )
+
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+
+        let perks = try await fixture.archive.availablePerks()
+        #expect(perks.count == 1)
+        #expect(perks.first?.quantity == 4)
+        #expect(perks.first?.items.map { $0.perkID ?? "-" } == ["a", "b", "c", "none"])
+        #expect(perks.first?.items.map(\.expiresAt) == [
+            Date(timeIntervalSince1970: 1_792_000_000),
+            Date(timeIntervalSince1970: 1_792_600_000),
+            Date(timeIntervalSince1970: 1_793_000_000),
+            nil
+        ])
+        #expect(perks.first?.items.map(\.quantity) == [1, 1, 1, 1])
+    }
+
+    @Test("Reading the same Perk points again adds nothing")
+    func reimportKeepsItems() async throws {
+        let fixture = try ImportFixture()
+        let data = PerkLine.metrics(service: "codexbar", points: [
+            .init(kind: "reset_credit", value: 1, time: t0, expiresAt: 1_792_000_000, perkID: "a"),
+            .init(kind: "reset_credit", value: 1, time: t0, expiresAt: 1_792_600_000, perkID: "b")
+        ])
+        let file = try fixture.write(data, named: "codexbar-metrics-2026-10-12.jsonl", in: fixture.codexFolder)
+
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+        try Data(data.prefix(10)).write(to: file)
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+        try data.write(to: file)
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+
+        let perks = try await fixture.archive.availablePerks()
+        #expect(perks.first?.quantity == 2)
+        #expect(perks.first?.items.count == 2)
+    }
+
+    @Test("Readings from an Archive made before Perks had ids carry over once, as id-less points")
+    func carriesOverEarlierReadings() async throws {
+        let folder = try TemporaryFolder()
+        let url = folder.url.appendingPathComponent("Archive.sqlite")
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        let legacy = """
+            CREATE TABLE perk_samples (
+                app TEXT NOT NULL, kind TEXT NOT NULL, currency TEXT NOT NULL, time_unix_nano INTEGER NOT NULL,
+                value REAL NOT NULL, expires_at INTEGER, PRIMARY KEY (app, kind, currency, time_unix_nano)
+            ) WITHOUT ROWID;
+            INSERT INTO perk_samples VALUES ('codexBar', 'reset_credit', '', \(t0), 3, 1792000000);
+            """
+        #expect(sqlite3_exec(handle, legacy, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(handle)
+
+        _ = try Archive(url: url)
+        let archive = try Archive(url: url)
+
+        let perks = try await archive.availablePerks()
+        #expect(perks.map(\.quantity) == [3])
+        #expect(perks.first?.items == [AvailablePerkItem(quantity: 3, perkID: nil, expiresAt: Date(timeIntervalSince1970: 1_792_000_000))])
     }
 
     @Test("A series whose latest reading is zero isn't available")

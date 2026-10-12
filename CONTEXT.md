@@ -78,7 +78,7 @@ A Claude referral pass that can be given to someone else.
 Money credited to a Claude account for extra usage.
 
 **Perk**:
-Any Reset Credit, Guest Pass or Credit Grant. A Perk is available, then gone, and it goes either because it was used or because it expired.
+Any Reset Credit, Guest Pass or Credit Grant. A Perk is available, then gone, and it goes either because it was used or because it expired. Each Perk has its own expiry, so Bar UI lists them one per line when the Bar App identifies them.
 _Avoid_: redemption token, offer
 
 ## Relationships
