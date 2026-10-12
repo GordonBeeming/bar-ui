@@ -57,6 +57,14 @@ public struct TokenUsage: Sendable, Equatable {
     /// What each model used, by Token Type, across every Bar App. Reasoning is
     /// left out because output already contains it.
     public let tokensByModel: [String: [TokenType: Int64]]
+    private let tokensByAppAndModel: [BarApp: [String: [TokenType: Int64]]]
+
+    /// What each model used in one Bar App, by Token Type. Unlike
+    /// `tokensByModel` this keeps Reasoning, so a page can show it; it must not
+    /// be priced or summed with the other types.
+    public func tokens(of app: BarApp) -> [String: [TokenType: Int64]] {
+        tokensByAppAndModel[app] ?? [:]
+    }
 
     /// Nil when there was no output to take a share of.
     public var reasoningShareOfOutput: Double? {
@@ -83,7 +91,9 @@ public struct TokenUsage: Sendable, Equatable {
         var cacheRead: Int64 = 0
         var byBucket: [Date: [BarApp: Int64]] = [:]
         var tokensByModel: [String: [TokenType: Int64]] = [:]
+        var tokensByAppAndModel: [BarApp: [String: [TokenType: Int64]]] = [:]
         for increase in increases {
+            tokensByAppAndModel[increase.app, default: [:]][increase.model, default: [:]][increase.tokenType, default: 0] += increase.tokens
             switch increase.tokenType {
             case .reasoning:
                 reasoning += increase.tokens
@@ -110,6 +120,7 @@ public struct TokenUsage: Sendable, Equatable {
         self.reasoning = reasoning
         self.cacheRead = cacheRead
         self.tokensByModel = tokensByModel
+        self.tokensByAppAndModel = tokensByAppAndModel
         self.buckets = Self.filledBuckets(byBucket, windowStart: windowStart, now: now, component: range.bucketComponent, calendar: calendar)
     }
 

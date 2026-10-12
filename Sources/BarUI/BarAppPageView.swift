@@ -80,6 +80,7 @@ struct BarAppPageView: View {
                     LimitHistorySection(app: app, model: history)
                         .id(app)
                     if let overview {
+                        ModelTokensSection(app: app, overview: overview)
                         PerksSectionView(
                             app: app,
                             available: overview.availablePerks(of: app),
