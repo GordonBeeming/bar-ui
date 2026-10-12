@@ -1,0 +1,84 @@
+import AppKit
+import BarUICore
+import SwiftUI
+
+struct SidebarRow: View {
+    let item: SidebarItem
+    /// Only set for Bar App rows.
+    var barAppState: TrackingState?
+
+    var body: some View {
+        switch item {
+        case .overview:
+            Label(item.title, systemImage: "square.grid.2x2")
+        case .barApp(let app):
+            Label {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title)
+                    if let barAppState {
+                        TrackingStateLabel(state: barAppState)
+                    }
+                }
+            } icon: {
+                BarAppTile(app: app)
+            }
+            .accessibilityElement(children: .combine)
+        case .archive(let page):
+            Label(item.title, systemImage: page.systemImage)
+        }
+    }
+}
+
+private struct TrackingStateLabel: View {
+    let state: TrackingState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if state == .tracking {
+                // Colour alone doesn't carry meaning here; the text does, the
+                // dot just makes the one active state easy to spot.
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+            }
+            Text(state.title)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct BarAppTile: View {
+    let app: BarApp
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(app.brandColor)
+            .frame(width: 18, height: 18)
+            .overlay {
+                Image(systemName: app.systemImage)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+private extension ArchivePage {
+    var systemImage: String {
+        switch self {
+        case .events: "text.alignleft"
+        case .imports: "square.and.arrow.down"
+        }
+    }
+}
+
+private extension BarApp {
+    var systemImage: String {
+        switch self {
+        case .claudeBar: "asterisk"
+        case .codexBar: "chevron.forward"
+        }
+    }
+}

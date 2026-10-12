@@ -1,0 +1,237 @@
+# Triggers:
+#   - Push to main          → build + test
+#   - Pull request to main  → build + test (gate for merge)
+#   - Published release     → build + test, then sign, notarize, upload the DMG
+#                             and update the Homebrew cask
+#
+# Secrets required (set in the `prod` GitHub environment):
+#   DEVELOPER_ID_CERTIFICATE — base64 of the .p12 holding the "Developer ID
+#                              Application" certificate and its key
+#   DEVELOPER_ID_PASSWORD    — password protecting that .p12
+#   APPLE_ID                 — Apple Developer account email
+#   APPLE_TEAM_ID            — 10-character Apple Developer Team ID
+#   APPLE_APP_PASSWORD       — app-specific password for notarytool
+#   HOMEBREW_TAP_DEPLOY_KEY  — SSH deploy key with write access to
+#                              GordonBeeming/homebrew-tap
+
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  build-and-test:
+    # The package targets macOS 26 (Liquid Glass) with tools-version 6.2, which
+    # needs the Xcode 26 toolchain on the macos-26 image.
+    runs-on: macos-26
+    name: Build & Test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Print Swift version
+        run: swift --version
+
+      - name: Build all targets
+        run: swift build --build-tests
+
+      - name: Run tests
+        run: swift test --parallel
+
+  release:
+    needs: build-and-test
+    if: github.event_name == 'release'
+    runs-on: macos-26
+    name: Sign, Notarize & Release
+    environment: prod
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set release version
+        run: |
+          # Checked before the prefix is stripped: stripping first would let a
+          # bare 0.1 through, and the cask's download URL always adds the v.
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must be major.minor with a v prefix, like v0.1; got ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          echo "${CERTIFICATE_BASE64}" | base64 --decode > certificate.p12
+
+          KEYCHAIN_PATH="${RUNNER_TEMP}/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security default-keychain -s "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
+          security import certificate.p12 \
+            -k "${KEYCHAIN_PATH}" \
+            -P "${CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "${KEYCHAIN_PASSWORD}" \
+            "${KEYCHAIN_PATH}"
+
+          rm certificate.p12
+
+          # Pick the identity by hash rather than by common-name prefix, so
+          # codesign can't choose an unexpected one if the keychain ever
+          # holds more than one signing certificate.
+          IDENTITY_HASH="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk '/Developer ID Application/{print $2; exit}')"
+          if [[ -z "${IDENTITY_HASH}" ]]; then
+            echo "No 'Developer ID Application' identity found in the imported certificate." >&2
+            exit 1
+          fi
+          echo "CODESIGN_IDENTITY=${IDENTITY_HASH}" >> "${GITHUB_ENV}"
+
+      # `make bundle` signs the login-item helper first and then the app, both
+      # with these options, so the hardened runtime covers both.
+      - name: Build signed app bundle
+        run: |
+          make bundle \
+            VERSION="${VERSION}" \
+            BUILD="${{ github.run_number }}" \
+            CODESIGN_IDENTITY="${CODESIGN_IDENTITY}" \
+            CODESIGN_OPTS="--options runtime --timestamp"
+
+      # A bundle missing the helper or the resource bundle still signs and
+      # notarizes cleanly, then fails on the user's Mac, so check for both.
+      - name: Verify bundle and signature
+        run: |
+          test -d dist/BarUI.app/Contents/Library/LoginItems/BarUIHelper.app
+          test -d dist/BarUI.app/Contents/Resources/BarUI_BarUICore.bundle
+          test -f dist/BarUI.app/Contents/Resources/AppIcon.icns
+          codesign --verify --deep --strict --verbose=2 dist/BarUI.app
+
+      - name: Create, sign, and notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          DMG_PATH="dist/BarUI-${VERSION}.dmg"
+
+          hdiutil create \
+            -volname "Bar UI" \
+            -srcfolder dist/BarUI.app \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+
+          codesign --force \
+            --timestamp \
+            --sign "${CODESIGN_IDENTITY}" \
+            "${DMG_PATH}"
+
+          codesign --verify --verbose=2 "${DMG_PATH}"
+
+          NOTARY_RESULT="${RUNNER_TEMP}/barui-notary-result.json"
+          if ! xcrun notarytool submit "${DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_PASSWORD}" \
+            --wait \
+            --timeout 30m \
+            --output-format json > "${NOTARY_RESULT}"; then
+            cat "${NOTARY_RESULT}" >&2
+            SUBMISSION_ID="$(plutil -extract id raw -o - "${NOTARY_RESULT}" 2>/dev/null || true)"
+            if [[ -n "${SUBMISSION_ID}" ]]; then
+              xcrun notarytool log "${SUBMISSION_ID}" \
+                --apple-id "${APPLE_ID}" \
+                --team-id "${APPLE_TEAM_ID}" \
+                --password "${APPLE_APP_PASSWORD}" || true
+            fi
+            exit 1
+          fi
+          cat "${NOTARY_RESULT}"
+
+          xcrun stapler staple "${DMG_PATH}"
+          xcrun stapler validate "${DMG_PATH}"
+          hdiutil verify "${DMG_PATH}"
+          spctl -a -t open \
+            --context context:primary-signature \
+            -vv "${DMG_PATH}"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "dist/BarUI-${VERSION}.dmg" \
+            --clobber
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          test -n "${HOMEBREW_TAP_DEPLOY_KEY}" || { echo "HOMEBREW_TAP_DEPLOY_KEY is not set in the prod environment." >&2; exit 1; }
+
+          DMG_PATH="dist/BarUI-${VERSION}.dmg"
+          DMG_SHA256="$(shasum -a 256 "${DMG_PATH}" | awk '{print $1}')"
+
+          mkdir -p ~/.ssh
+          echo "${HOMEBREW_TAP_DEPLOY_KEY}" > ~/.ssh/homebrew_tap_key
+          chmod 600 ~/.ssh/homebrew_tap_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_key -o IdentitiesOnly=yes"
+
+          git clone git@github.com:GordonBeeming/homebrew-tap.git /tmp/homebrew-tap
+
+          mkdir -p /tmp/homebrew-tap/Casks
+          cat > /tmp/homebrew-tap/Casks/bar-ui.rb << CASK_EOF
+          cask "bar-ui" do
+            version "${VERSION}"
+            sha256 "${DMG_SHA256}"
+
+            url "https://github.com/gordonbeeming/bar-ui/releases/download/v#{version}/BarUI-#{version}.dmg"
+            name "Bar UI"
+            desc "Dashboard for ClaudeBar and CodexBar usage telemetry"
+            homepage "https://github.com/gordonbeeming/bar-ui"
+
+            depends_on macos: :tahoe
+            depends_on arch: :arm64
+            app "BarUI.app"
+
+            uninstall quit: [
+              "com.gordonbeeming.BarUI",
+              "com.gordonbeeming.BarUI.Helper",
+            ]
+
+            zap trash: [
+              "~/Library/Application Support/com.gordonbeeming.BarUI",
+              "~/Library/Caches/com.gordonbeeming.BarUI",
+              "~/Library/Preferences/com.gordonbeeming.BarUI.plist",
+              "~/Library/Preferences/com.gordonbeeming.BarUI.Helper.plist",
+            ]
+          end
+          CASK_EOF
+          sed -i '' 's/^          //' /tmp/homebrew-tap/Casks/bar-ui.rb
+
+          cd /tmp/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/bar-ui.rb
+          git commit -m "Update bar-ui to ${VERSION}" || echo "No changes to commit"
+          git push
+
+          rm -f ~/.ssh/homebrew_tap_key

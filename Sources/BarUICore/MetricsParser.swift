@@ -1,0 +1,324 @@
+import Foundation
+
+/// Reads the Limit, token and Perk samples out of a Bar App's OTLP/JSON metrics lines,
+/// following Telemetry Spec v1. Anything that doesn't conform is dropped and
+/// counted, never guessed at.
+public enum MetricsParser {
+    private static let tokensMetricName = "bar.tokens"
+
+    /// The units spec §4 gives. `bar.perk.available` has none in the spec, so
+    /// its unit isn't checked.
+    private static let specUnits: [String: String] = [
+        LimitMetric.utilization.rawValue: "%",
+        LimitMetric.resetsAt.rawValue: "s",
+        tokensMetricName: "{token}"
+    ]
+
+    private static func isReadMetric(_ name: String?) -> Bool {
+        guard let name else {
+            return false
+        }
+        return name == tokensMetricName || name == PerkSample.metricName || LimitMetric(rawValue: name) != nil
+    }
+
+    /// Whether the scope holds a `bar.*` metric Bar UI reads, so dropping it
+    /// for a broken resource or scope is worth counting.
+    private static func holdsReadMetrics(_ scope: ScopeMetrics) -> Bool {
+        (scope.metrics ?? []).contains { isReadMetric($0.name) }
+    }
+
+    public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
+        var records = TelemetryRecords()
+        var perks = PerkAccumulator()
+        var dropped = 0
+        let lines = OTLPLines.forEachRequest(in: data, as: ExportMetricsServiceRequest.self) { request in
+            for resourceMetrics in request.resourceMetrics ?? [] {
+                read(resourceMetrics, from: app, into: &records.limitSamples, tokens: &records.tokenSamples, perks: &perks, dropped: &dropped)
+            }
+        }
+        records.perkSamples = perks.samples
+        return TelemetryParseResult(records: records, droppedRecords: dropped + lines.undecodableLines, consumedByteCount: lines.consumedByteCount)
+    }
+
+    private static func read(
+        _ resourceMetrics: ResourceMetrics,
+        from app: BarApp,
+        into samples: inout [LimitSample],
+        tokens: inout [TokenSample],
+        perks: inout PerkAccumulator,
+        dropped: inout Int
+    ) {
+        let resource = resourceMetrics.resource?.attributes ?? []
+        // A record from another spec version or another Bar App can't be read
+        // as this one's, so the whole resource goes rather than part of it.
+        guard OTLPLines.isConforming(resource: resource, of: app) else {
+            dropped += 1
+            return
+        }
+        let scopes = resourceMetrics.scopeMetrics ?? []
+        guard OTLPLines.hasSpecAttributes(resource: resource) else {
+            if scopes.contains(where: holdsReadMetrics) {
+                dropped += 1
+            }
+            return
+        }
+        for scope in scopes {
+            guard OTLPLines.isConforming(scope: scope.scope, of: app) else {
+                if holdsReadMetrics(scope) {
+                    dropped += 1
+                }
+                continue
+            }
+            for metric in scope.metrics ?? [] {
+                if metric.isMalformed {
+                    if isReadMetric(metric.name) {
+                        dropped += 1
+                    }
+                    continue
+                }
+                if let name = metric.name, let unit = specUnits[name], metric.unit != unit {
+                    dropped += 1
+                    continue
+                }
+                if metric.name == Self.tokensMetricName {
+                    readTokens(metric, from: app, into: &tokens, dropped: &dropped)
+                    continue
+                }
+                if metric.name == PerkSample.metricName {
+                    guard let gauge = metric.gauge else {
+                        dropped += 1
+                        continue
+                    }
+                    for point in gauge.dataPoints ?? [] {
+                        if let sample = perkSample(from: point, app: app) {
+                            perks.add(sample)
+                        } else {
+                            dropped += 1
+                        }
+                    }
+                    continue
+                }
+                guard let name = metric.name, let limitMetric = LimitMetric(rawValue: name) else {
+                    continue
+                }
+                guard let gauge = metric.gauge else {
+                    dropped += 1
+                    continue
+                }
+                for point in gauge.dataPoints ?? [] {
+                    if let sample = sample(from: point, metric: limitMetric, app: app) {
+                        samples.append(sample)
+                    } else {
+                        dropped += 1
+                    }
+                }
+            }
+        }
+    }
+
+    private static func readTokens(
+        _ metric: Metric,
+        from app: BarApp,
+        into tokens: inout [TokenSample],
+        dropped: inout Int
+    ) {
+        // Reading a cumulative count as anything else would turn totals into
+        // increments, so a Sum of another shape is dropped whole.
+        guard let sum = metric.sum, !sum.isMalformed, sum.aggregationTemporality == 2, sum.isMonotonic == true else {
+            dropped += 1
+            return
+        }
+        for point in sum.dataPoints ?? [] {
+            if let sample = tokenSample(from: point, app: app) {
+                tokens.append(sample)
+            } else {
+                dropped += 1
+            }
+        }
+    }
+
+    private static func tokenSample(from point: NumberDataPoint, app: BarApp) -> TokenSample? {
+        let attributes = point.attributes ?? []
+        guard !point.isMalformed,
+              let model = attributes.string("model"), !model.isEmpty,
+              let typeName = attributes.string("token.type"), let tokenType = TokenType(rawValue: typeName),
+              let start = point.startTimeUnixNano, start > 0,
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value >= 0, let count = Int64(exactly: value) else {
+            return nil
+        }
+        return TokenSample(app: app, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
+    }
+
+    private static func perkSample(from point: NumberDataPoint, app: BarApp) -> PerkSample? {
+        let attributes = point.attributes ?? []
+        guard !point.isMalformed,
+              let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value.isFinite, value >= 0,
+              let currency = PerkAttributes.currency(of: kind, in: attributes),
+              let expiresAt = PerkAttributes.expiresAt(in: attributes) else {
+            return nil
+        }
+        return PerkSample(
+            app: app,
+            kind: kind,
+            currency: currency.value,
+            timeUnixNano: time,
+            value: value,
+            expiresAt: expiresAt.value,
+            perkID: attributes.string("perk.id").flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
+        let attributes = point.attributes ?? []
+        guard !point.isMalformed,
+              let limit = OTLPLines.limitDescriptor(from: attributes),
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value.isFinite else {
+            return nil
+        }
+
+        switch metric {
+        case .utilization:
+            guard (0...100).contains(value) else { return nil }
+        case .resetsAt:
+            guard value > 0 else { return nil }
+        }
+
+        return LimitSample(app: app, limit: limit, metric: metric, timeUnixNano: time, value: value)
+    }
+}
+
+// MARK: - OTLP/JSON shapes
+
+// Only the fields Bar UI reads. Every field is optional so a record missing
+// one is judged against the spec by the parser, not rejected wholesale by
+// the decoder along with the valid points on the same line.
+
+private struct ExportMetricsServiceRequest: Decodable {
+    let resourceMetrics: [ResourceMetrics]?
+}
+
+private struct ResourceMetrics: Decodable {
+    let resource: Resource?
+    let scopeMetrics: [ScopeMetrics]?
+}
+
+private struct Resource: Decodable {
+    let attributes: [KeyValue]?
+}
+
+private struct ScopeMetrics: Decodable {
+    /// Nil when absent or not a scope object; either way it doesn't conform.
+    let scope: InstrumentationScope?
+    let metrics: [Metric]?
+
+    private enum CodingKeys: String, CodingKey {
+        case scope, metrics
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // A scope that isn't an object reads as missing, which drops its
+        // bar.* metrics, rather than throwing away the whole line.
+        scope = try? container.decodeIfPresent(InstrumentationScope.self, forKey: .scope)
+        metrics = try container.decodeIfPresent([Metric].self, forKey: .metrics)
+    }
+}
+
+private struct Metric: Decodable {
+    let name: String?
+    let unit: String?
+    let gauge: Gauge?
+    let sum: Sum?
+    /// The metric isn't an object, or one of its fields is of the wrong type.
+    /// Decoding never throws, so one broken metric can't take the valid
+    /// metrics beside it on the line down with it.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name, unit, gauge, sum
+    }
+
+    init(from decoder: any Decoder) throws {
+        guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+            name = nil
+            unit = nil
+            gauge = nil
+            sum = nil
+            isMalformed = true
+            return
+        }
+        var malformed = false
+        name = container.decodeLeniently(String.self, forKey: .name, malformed: &malformed)
+        unit = container.decodeLeniently(String.self, forKey: .unit, malformed: &malformed)
+        gauge = container.decodeLeniently(Gauge.self, forKey: .gauge, malformed: &malformed)
+        sum = container.decodeLeniently(Sum.self, forKey: .sum, malformed: &malformed)
+        isMalformed = malformed || gauge?.isMalformed == true || sum?.isMalformed == true
+    }
+}
+
+private struct Sum: Decodable {
+    let aggregationTemporality: Int?
+    let isMonotonic: Bool?
+    let dataPoints: [NumberDataPoint]?
+    /// A field was present but of the wrong type.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case aggregationTemporality, isMonotonic, dataPoints
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var malformed = false
+        aggregationTemporality = container.decodeLeniently(Int.self, forKey: .aggregationTemporality, malformed: &malformed)
+        isMonotonic = container.decodeLeniently(Bool.self, forKey: .isMonotonic, malformed: &malformed)
+        dataPoints = container.decodeLeniently([NumberDataPoint].self, forKey: .dataPoints, malformed: &malformed)
+        isMalformed = malformed
+    }
+}
+
+private struct Gauge: Decodable {
+    let dataPoints: [NumberDataPoint]?
+    /// `dataPoints` was present but not a list of objects.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case dataPoints
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var malformed = false
+        dataPoints = container.decodeLeniently([NumberDataPoint].self, forKey: .dataPoints, malformed: &malformed)
+        isMalformed = malformed
+    }
+}
+
+private struct NumberDataPoint: Decodable {
+    let attributes: [KeyValue]?
+    let startTimeUnixNano: Int64?
+    let timeUnixNano: Int64?
+    let value: Double?
+    /// Some field, or an attribute's value, was present but of the wrong type.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case attributes, startTimeUnixNano, timeUnixNano, asDouble, asInt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var malformed = false
+        attributes = container.decodeLeniently([KeyValue].self, forKey: .attributes, malformed: &malformed)
+        startTimeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .startTimeUnixNano, malformed: &malformed)?.value
+        timeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .timeUnixNano, malformed: &malformed)?.value
+        let double = container.decodeLeniently(Double.self, forKey: .asDouble, malformed: &malformed)
+        let int = container.decodeLeniently(OTLPInt.self, forKey: .asInt, malformed: &malformed)?.value
+        value = double ?? int.map(Double.init)
+        isMalformed = malformed || attributes?.isMalformed == true
+    }
+}
