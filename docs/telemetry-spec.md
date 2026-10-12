@@ -132,7 +132,7 @@ Bar UI keys a Perk series on `perk.kind` and `perk.currency` only. Every other a
 | `bar.perk.available` | A Perk appears, or its count or amount goes up | `perk.kind`, `perk.quantity`, `perk.currency` for a Credit Grant, `perk.id` if the tool provides one, `perk.expires_at` if known |
 | `bar.perk.gone` | A Perk disappears, or its count or amount goes down | the same, plus `perk.gone.reason` (`used` or `expired`), but only when the Bar App knows it |
 
-`perk.quantity` is how much appeared or went in this one event: a count for `reset_credit` and `guest_pass` (an int), an amount in major units for `credit_grant` (a double). It is always positive. When it's missing, Bar UI takes it as `1`. A Bar App can write one event per Perk (CodexBar does, with each credit's `perk.id`) or one event for the whole change (ClaudeBar does).
+`perk.quantity` is how much appeared or went in this one event: a count for `reset_credit` and `guest_pass` (an int), an amount in major units for `credit_grant` (a double). It is always positive. When it's missing on a `reset_credit` or `guest_pass` event, Bar UI takes it as `1`. When it's missing on a `credit_grant` event, the amount is unknown: Bar UI records the event without an amount. A Bar App can write one event per Perk (CodexBar does, with each credit's `perk.id`) or one event for the whole change (ClaudeBar does).
 
 Perk events come from a change in the count or amount. When the tool also lists individual Perks, that list may be capped, so a Perk showing up in the list or dropping out of it isn't on its own proof that it appeared or went.
 
