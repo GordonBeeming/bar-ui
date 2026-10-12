@@ -15,15 +15,7 @@ struct ArchiveOpening {
 
     static func open() -> ArchiveOpening {
         do {
-            // Application Support rather than Caches: the Archive is the only
-            // copy of history once the Bar Apps' retention deletes their files.
-            let folder = try FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            ).appendingPathComponent("com.gordonbeeming.BarUI", isDirectory: true)
-            let archive = try Archive(url: folder.appendingPathComponent("Archive.sqlite", isDirectory: false))
+            let archive = try Archive(url: ArchiveLocation.url())
             let overview = LimitsOverview(archive: archive)
             return ArchiveOpening(
                 overview: overview,

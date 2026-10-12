@@ -12,6 +12,8 @@ CODESIGN_OPTS ?=
 INSTALL_DIR ?= /Applications
 
 APP_BUNDLE := dist/BarUI.app
+# SMAppService.loginItem(identifier:) only finds helpers at this path.
+HELPER_BUNDLE := $(APP_BUNDLE)/Contents/Library/LoginItems/BarUIHelper.app
 
 build:
 	swift build -c release
@@ -28,7 +30,16 @@ bundle: build
 		-c "Set :CFBundleShortVersionString $(VERSION)" \
 		-c "Set :CFBundleVersion $(VERSION).$(BUILD)" \
 		$(APP_BUNDLE)/Contents/Info.plist
+	mkdir -p $(HELPER_BUNDLE)/Contents/MacOS
+	cp .build/release/BarUIHelper $(HELPER_BUNDLE)/Contents/MacOS/
+	cp Packaging/Helper-Info.plist $(HELPER_BUNDLE)/Contents/Info.plist
+	/usr/libexec/PlistBuddy \
+		-c "Set :CFBundleShortVersionString $(VERSION)" \
+		-c "Set :CFBundleVersion $(VERSION).$(BUILD)" \
+		$(HELPER_BUNDLE)/Contents/Info.plist
+	# The helper is signed first: signing the app seals what is inside it.
 	IDENT="$(CODESIGN_IDENTITY)"; [ -n "$$IDENT" ] || IDENT="-"; \
+	codesign --force --sign "$$IDENT" --identifier com.gordonbeeming.BarUI.Helper $(CODESIGN_OPTS) $(HELPER_BUNDLE) && \
 	codesign --force --sign "$$IDENT" --identifier com.gordonbeeming.BarUI $(CODESIGN_OPTS) $(APP_BUNDLE)
 
 install: bundle

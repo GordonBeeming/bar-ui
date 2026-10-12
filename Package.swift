@@ -15,6 +15,10 @@ let package = Package(
             name: "BarUI",
             dependencies: ["BarUICore"]
         ),
+        .executableTarget(
+            name: "BarUIHelper",
+            dependencies: ["BarUICore"]
+        ),
         .testTarget(
             name: "BarUICoreTests",
             dependencies: ["BarUICore"],

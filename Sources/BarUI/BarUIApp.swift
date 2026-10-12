@@ -23,6 +23,7 @@ struct BarUIApp: App {
         homeDirectory: ContentView.home
     ))
     @State private var pricing = PricingCatalog(cacheDirectory: Self.pricingCacheDirectory())
+    @State private var backgroundImport = BackgroundImportSetting(service: LoginItemService(), store: UserDefaultsChoiceStore())
 
     var body: some Scene {
         // No preferredColorScheme anywhere: the window has to follow the Mac's
@@ -34,6 +35,11 @@ struct BarUIApp: App {
             ContentView(monitor: monitor, archive: archive)
                 .frame(minWidth: 900, minHeight: 600)
                 .environment(pricing)
+                .task {
+                    // Registers the helper the first time the app opens, and
+                    // repairs it if it was removed or the choice changed since.
+                    backgroundImport.reconcile()
+                }
                 .task {
                     while !Task.isCancelled {
                         await pricing.refresh()
@@ -55,7 +61,7 @@ struct BarUIApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView()
+            SettingsView(backgroundImport: backgroundImport)
                 .environment(pricing)
         }
     }
