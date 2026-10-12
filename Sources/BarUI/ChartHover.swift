@@ -54,14 +54,24 @@ struct HoverRule<Callout: View>: ChartContent {
 }
 
 extension View {
-    /// A time axis whose last label hangs back from the trailing edge instead
-    /// of being cut to "1…" by it.
-    func edgeSafeTimeAxis() -> some View {
-        chartXAxis {
-            AxisMarks { value in
+    /// A time axis with short labels ("6 PM" for hourly buckets, "12 Oct" for
+    /// daily ones) whose last label hangs back from the trailing edge instead
+    /// of being cut to "1…" by it. Left to itself, Swift Charts picks a full
+    /// date and time once the domain is set explicitly, and the labels
+    /// collide; any label that would still overlap its neighbour is dropped.
+    func edgeSafeTimeAxis(unit: Calendar.Component, desiredCount: Int = 5) -> some View {
+        let format: Date.FormatStyle = unit == .hour
+            ? .dateTime.hour()
+            : .dateTime.day().month(.abbreviated)
+        return chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: desiredCount)) { value in
                 AxisGridLine()
                 AxisTick()
-                AxisValueLabel(anchor: value.index == value.count - 1 ? .topTrailing : nil)
+                AxisValueLabel(
+                    format: format,
+                    anchor: value.index == value.count - 1 ? .topTrailing : nil,
+                    collisionResolution: .greedy(minimumSpacing: 6)
+                )
             }
         }
     }
