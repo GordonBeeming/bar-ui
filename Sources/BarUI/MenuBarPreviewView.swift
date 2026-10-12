@@ -213,6 +213,8 @@ private struct BarAppLimitsCard: View {
 private struct LimitRowView: View {
     let row: MenuBarLimitRow
 
+    private static let paceTint = LimitCard.Severity.runningLow.labelColor
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
@@ -236,17 +238,22 @@ private struct LimitRowView: View {
                     .font(.caption)
                     .monospacedDigit()
                     .fontWeight(row.isBurnRateHighlighted ? .semibold : .regular)
-                    .foregroundStyle(row.isBurnRateHighlighted ? LimitCard.Severity.nearLimit.labelColor : .secondary)
+                    .foregroundStyle(row.isBurnRateHighlighted ? Self.paceTint : .secondary)
                 Spacer(minLength: 8)
                 Text(row.resetText)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            // A fast burn is a heads-up about pace, not a fault, so it uses the
+            // running-low amber; red stays for a Limit that is nearly used up.
             if let projection = row.projectionText {
-                Text(projection)
+                Label(projection, systemImage: "flame.fill")
                     .font(.caption)
-                    .foregroundStyle(LimitCard.Severity.nearLimit.labelColor)
+                    .foregroundStyle(Self.paceTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Self.paceTint.opacity(0.14), in: Capsule())
             }
         }
         .accessibilityElement(children: .combine)

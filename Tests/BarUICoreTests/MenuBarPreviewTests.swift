@@ -35,7 +35,7 @@ struct MenuBarPreviewTests {
         // 60% to 61% is 12 an hour, so 100% is 3h15m away; the week has two days left.
         let weekly = try #require(rows["claudeBar/weekly_all"])
         #expect(weekly.burnRateText == "+12%/h")
-        #expect(weekly.projectionText == "At this rate it hits 100% in 3h 15m")
+        #expect(weekly.projectionText == "On pace to run out in 3h 15m, before it resets")
         #expect(weekly.isBurnRateHighlighted)
 
         #expect(preview.problem == nil)

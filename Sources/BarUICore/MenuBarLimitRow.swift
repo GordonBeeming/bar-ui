@@ -37,7 +37,7 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
         burnRateText = Self.burnRateText(percentPerHour: burnRate.percentPerHour)
         projectionText = burnRate
             .timeUntilFullBeforeReset(from: card.utilization, resetsAt: card.resetsAt, now: now)
-            .map { "At this rate it hits 100% in " + LimitCard.durationText(seconds: $0) }
+            .map { "On pace to run out in " + LimitCard.durationText(seconds: $0) + ", before it resets" }
     }
 
     /// The sign says the Window is filling up; a rate that shows as zero at
