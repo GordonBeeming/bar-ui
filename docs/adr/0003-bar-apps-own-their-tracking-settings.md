@@ -1,0 +1,3 @@
+# Bar Apps own their Tracking settings; the Dashboard changes them through a URL scheme
+
+The Dashboard can turn Tracking on or off and set the interval, retention and Telemetry Folder of any Bar App. It does this by opening a URL scheme each Bar App provides, not by writing into the Bar App's defaults domain. Writing defaults from another process does persist, but a running Bar App isn't notified of the change, and CodexBar only applies telemetry settings through an explicit step. With the URL scheme, each Bar App remains the only writer of its own settings, and it can confirm the change itself.
