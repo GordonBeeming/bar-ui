@@ -2,7 +2,8 @@ import SwiftUI
 
 /// A Limit's usage bar, with a tick where usage would be if it were spread
 /// evenly over the Window. A fill short of the tick has headroom; past it,
-/// the Window is being used faster than it refills.
+/// usage is ahead of an even spread and would run out before the reset if it
+/// kept that up.
 ///
 /// Drawn directly rather than with `Gauge`: the linear Gauge styles show
 /// their label inside the bar even when labels are hidden.
@@ -18,10 +19,14 @@ struct LimitMeter: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
+                // The stack is taller than the track so the tick can stand
+                // out above and below it; the track keeps its own height.
+                Capsule()
+                    .fill(.quaternary)
+                    .frame(height: height)
                 Capsule()
                     .fill(color)
-                    .frame(width: max(width * clamped(fraction), fraction > 0 ? height : 0))
+                    .frame(width: max(width * clamped(fraction), fraction > 0 ? height : 0), height: height)
                 if let paceMark {
                     Rectangle()
                         .fill(.primary.opacity(0.75))

@@ -7,7 +7,7 @@ import SwiftUI
 struct PaceLabel: View {
     let text: String
     /// Positive is over, negative is headroom.
-    let gap: Int
+    let gap: Double
     var emphasised = false
 
     private static let behind = Color(light: 0x1F7A3A, dark: 0x5BD17F)

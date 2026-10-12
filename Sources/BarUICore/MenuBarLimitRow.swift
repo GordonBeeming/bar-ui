@@ -19,7 +19,7 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     /// is unknown.
     public let paceText: String?
     /// Positive is over, negative is headroom.
-    public let paceGap: Int?
+    public let paceGap: Double?
     public let burnRateText: String
     /// Set only when 100% comes before the Window resets.
     public let projectionText: String?

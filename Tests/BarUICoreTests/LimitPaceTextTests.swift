@@ -22,7 +22,8 @@ struct LimitPaceTextTests {
         (55, 0.58, "3% headroom"),
         (20, 0.10, "10% over"),
         (30, 0.30, "0% headroom"),
-        (30.2, 0.30, "0% headroom"),
+        (30.2, 0.30, "<1% over"),
+        (29.8, 0.30, "<1% headroom"),
         (30, nil, nil)
     ]
 
@@ -31,17 +32,20 @@ struct LimitPaceTextTests {
         #expect(LimitCard.paceText(utilization: utilization, windowElapsed: elapsed) == expected)
     }
 
-    // (Utilization %, share of the Window gone, expected gap: positive is ahead.)
-    private static let gaps: [(Double, Double?, Int?)] = [
-        (55, 0.58, -3),
-        (20, 0.10, 10),
-        (30.2, 0.30, 0),
+    // (Utilization %, share of the Window gone, expected side: 1 over, -1 headroom, 0 on the line.)
+    private static let sides: [(Double, Double?, Int?)] = [
+        (55, 0.58, -1),
+        (20, 0.10, 1),
+        (30.2, 0.30, 1),
+        (29.8, 0.30, -1),
+        (30, 0.30, 0),
         (30, nil, nil)
     ]
 
-    @Test("The gap's sign says which side of pace usage is on", arguments: gaps)
-    func gap(utilization: Double, elapsed: Double?, expected: Int?) {
-        #expect(LimitCard.paceGap(utilization: utilization, windowElapsed: elapsed) == expected)
+    @Test("The side comes from the unrounded gap, so a fraction past the tick still counts as over", arguments: sides)
+    func side(utilization: Double, elapsed: Double?, expected: Int?) {
+        let gap = LimitCard.paceGap(utilization: utilization, windowElapsed: elapsed)
+        #expect(gap.map { $0 > 0 ? 1 : $0 < 0 ? -1 : 0 } == expected)
     }
 
     // (Seconds from now until the reset, expected text.)

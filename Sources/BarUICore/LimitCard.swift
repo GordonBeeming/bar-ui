@@ -37,7 +37,7 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// time isn't known, or the reset is already due.
     public let windowElapsed: Double?
     /// Positive is over, negative is headroom; nil when `windowElapsed` is.
-    public let paceGap: Int?
+    public let paceGap: Double?
     /// "24% headroom" or "10% over", or nil when `windowElapsed` is.
     public let paceText: String?
     /// "Resets Tomorrow 5:00 PM · in 1d 9h".
@@ -121,17 +121,21 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// How far usage is from an even spread over the Window, in whole
     /// percentage points: positive is over (using allowance meant for later in
     /// the Window), negative is headroom that can be used now.
-    static func paceGap(utilization: Double, windowElapsed: Double?) -> Int? {
-        windowElapsed.map { Int((utilization - $0 * 100).rounded()) }
+    static func paceGap(utilization: Double, windowElapsed: Double?) -> Double? {
+        windowElapsed.map { utilization - $0 * 100 }
     }
 
     /// "24% headroom" or "10% over". The line isn't a target: headroom is
-    /// what can still be used without running out before the reset.
+    /// what can still be used without running out before the reset. The side
+    /// comes from the unrounded gap, so a fraction past the tick reads as
+    /// "<1% over" rather than looking level.
     static func paceText(utilization: Double, windowElapsed: Double?) -> String? {
         guard let gap = paceGap(utilization: utilization, windowElapsed: windowElapsed) else {
             return nil
         }
-        return gap > 0 ? "\(gap)% over" : "\(-gap)% headroom"
+        let points = Int(abs(gap).rounded())
+        let amount = points == 0 && gap != 0 ? "<1%" : "\(points)%"
+        return gap > 0 ? "\(amount) over" : "\(amount) headroom"
     }
 
     /// The reset as a clock time plus a countdown: the time on its own for
