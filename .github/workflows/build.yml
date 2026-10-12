@@ -1,0 +1,27 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    # The package targets macOS 26 (Liquid Glass) with tools-version 6.2, which
+    # needs the Xcode 26 toolchain on the macos-26 image.
+    runs-on: macos-26
+    name: Build & Test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Print Swift version
+        run: swift --version
+
+      - name: Build all targets
+        run: swift build --build-tests
+
+      - name: Run tests
+        run: swift test --parallel
