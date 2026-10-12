@@ -10,6 +10,7 @@ struct ArchiveOpening {
 
     let overview: LimitsOverview?
     let history: LimitHistoryModel?
+    let preview: MenuBarPreview?
     let failure: String?
 
     static func open() -> ArchiveOpening {
@@ -23,10 +24,16 @@ struct ArchiveOpening {
                 create: true
             ).appendingPathComponent("com.gordonbeeming.BarUI", isDirectory: true)
             let archive = try Archive(url: folder.appendingPathComponent("Archive.sqlite", isDirectory: false))
-            return ArchiveOpening(overview: LimitsOverview(archive: archive), history: LimitHistoryModel(archive: archive), failure: nil)
+            let overview = LimitsOverview(archive: archive)
+            return ArchiveOpening(
+                overview: overview,
+                history: LimitHistoryModel(archive: archive),
+                preview: MenuBarPreview(archive: archive, overview: overview),
+                failure: nil
+            )
         } catch {
             logger.error("Can't open the Archive: \(error.localizedDescription, privacy: .public)")
-            return ArchiveOpening(overview: nil, history: nil, failure: error.localizedDescription)
+            return ArchiveOpening(overview: nil, history: nil, preview: nil, failure: error.localizedDescription)
         }
     }
 }

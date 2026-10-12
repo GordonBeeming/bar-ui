@@ -82,7 +82,17 @@ public struct TokenUsage: Sendable, Equatable {
     }
 
     public init(samples: [TokenSample], range: TokenRange, now: Date, calendar: Calendar = .current) {
-        let windowStart = range.start(now: now)
+        self.init(
+            samples: samples,
+            windowStart: range.start(now: now),
+            bucketComponent: range.bucketComponent,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// For periods that aren't a `TokenRange`, such as the last hour.
+    init(samples: [TokenSample], windowStart: Date?, bucketComponent: Calendar.Component, now: Date, calendar: Calendar) {
         let increases = Self.increases(in: samples)
             .filter { increase in
                 let time = Date(unixNano: increase.timeUnixNano)
@@ -113,7 +123,7 @@ public struct TokenUsage: Sendable, Equatable {
             }
             totalByApp[increase.app, default: 0] += increase.tokens
             tokensByModel[increase.model, default: [:]][increase.tokenType, default: 0] += increase.tokens
-            let start = calendar.dateInterval(of: range.bucketComponent, for: Date(unixNano: increase.timeUnixNano))?.start
+            let start = calendar.dateInterval(of: bucketComponent, for: Date(unixNano: increase.timeUnixNano))?.start
                 ?? Date(unixNano: increase.timeUnixNano)
             byBucket[start, default: [:]][increase.app, default: 0] += increase.tokens
         }
@@ -126,7 +136,7 @@ public struct TokenUsage: Sendable, Equatable {
         self.cacheRead = cacheRead
         self.tokensByModel = tokensByModel
         self.tokensByAppAndModel = tokensByAppAndModel
-        self.buckets = Self.filledBuckets(byBucket, windowStart: windowStart, now: now, component: range.bucketComponent, calendar: calendar)
+        self.buckets = Self.filledBuckets(byBucket, windowStart: windowStart, now: now, component: bucketComponent, calendar: calendar)
     }
 
     // MARK: - Counters to increases

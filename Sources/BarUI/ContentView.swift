@@ -12,14 +12,11 @@ struct ContentView: View {
     /// volume, or a folder that was created after the watch began.
     private static let importInterval: Duration = .seconds(15)
 
-    private static let home = FileManager.default.homeDirectoryForCurrentUser
+    static let home = FileManager.default.homeDirectoryForCurrentUser
 
     @State private var selection: SidebarItem? = .initial
-    @State private var monitor = BarAppMonitor(detector: BarAppDetector(
-        locator: WorkspaceApplicationLocator(),
-        preferences: SystemPreferences(),
-        homeDirectory: Self.home
-    ))
+    /// Owned by the app so the Menu Bar Preview reads the same statuses.
+    let monitor: BarAppMonitor
     let archive: ArchiveOpening
     private let remote = BarAppRemote(opener: WorkspaceURLOpener())
 

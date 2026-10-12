@@ -87,9 +87,12 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
         guard seconds > 0 else {
             return "Resetting now"
         }
-        // Rounding down keeps the countdown from promising more time than
-        // there is.
-        let totalMinutes = Int(seconds / 60)
+        return "Resets in " + durationText(seconds: seconds)
+    }
+
+    /// Rounding down keeps a countdown from promising more time than there is.
+    static func durationText(seconds: TimeInterval) -> String {
+        let totalMinutes = Int(max(seconds, 0) / 60)
         let days = totalMinutes / (24 * 60)
         let hours = (totalMinutes / 60) % 24
         let minutes = totalMinutes % 60
@@ -102,6 +105,6 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
         } else {
             ["under a minute"]
         }
-        return "Resets in " + parts.joined(separator: " ")
+        return parts.joined(separator: " ")
     }
 }

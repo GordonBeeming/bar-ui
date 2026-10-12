@@ -168,7 +168,7 @@ private struct TokenTile: View {
     }
 }
 
-private enum TokenFormat {
+enum TokenFormat {
     static func compact(_ tokens: Int64) -> String {
         tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
     }

@@ -2,6 +2,10 @@ import BarUICore
 import os
 import SwiftUI
 
+enum MainWindow {
+    static let id = "main"
+}
+
 @main
 struct BarUIApp: App {
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "Pricing")
@@ -13,13 +17,21 @@ struct BarUIApp: App {
     /// Opened once for the app: every window shares one connection, and the
     /// shared overview skips a refresh while another window's is running.
     @State private var archive = ArchiveOpening.open()
+    @State private var monitor = BarAppMonitor(detector: BarAppDetector(
+        locator: WorkspaceApplicationLocator(),
+        preferences: SystemPreferences(),
+        homeDirectory: ContentView.home
+    ))
     @State private var pricing = PricingCatalog(cacheDirectory: Self.pricingCacheDirectory())
 
     var body: some Scene {
         // No preferredColorScheme anywhere: the window has to follow the Mac's
         // light/dark setting and switch live when the system does.
-        WindowGroup("Bar UI") {
-            ContentView(archive: archive)
+        //
+        // A single Window rather than a WindowGroup, so Open Bar UI in the
+        // Menu Bar Preview brings this one forward instead of making another.
+        Window("Bar UI", id: MainWindow.id) {
+            ContentView(monitor: monitor, archive: archive)
                 .frame(minWidth: 900, minHeight: 600)
                 .environment(pricing)
                 .task {
@@ -35,6 +47,12 @@ struct BarUIApp: App {
                 }
         }
         .defaultSize(width: 1440, height: 900)
+
+        MenuBarExtra("Bar UI", systemImage: "chart.bar.xaxis") {
+            MenuBarPreviewView(preview: archive.preview, monitor: monitor, archiveFailure: archive.failure)
+                .environment(pricing)
+        }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
