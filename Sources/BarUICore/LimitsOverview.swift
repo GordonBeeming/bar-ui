@@ -19,13 +19,31 @@ public final class LimitsOverview {
     /// A Bar App with nothing dropped has no entry.
     public private(set) var skippedRecords: [BarApp: SkippedRecordsNotice] = [:]
 
+    /// When an import pass last finished reading at least one Telemetry
+    /// Folder. Nil until one has, including when no Bar App has a folder.
+    public private(set) var lastImportedAt: Date?
+
     private let archive: Archive
     private let importer: TelemetryImporter
-    private var isRefreshing = false
+    private let now: @MainActor () -> Date
+    private var latestStatuses: [BarApp: BarAppStatus] = [:]
+    private var requestedPasses = 0
+    private var finishedPasses = 0
+    private var runningPass: Task<Void, Never>?
 
-    public init(archive: Archive) {
+    public init(archive: Archive, now: @escaping @MainActor () -> Date = { Date() }) {
         self.archive = archive
         self.importer = TelemetryImporter(archive: archive)
+        self.now = now
+    }
+
+    /// The folders an import pass reads, and so the ones worth watching.
+    public nonisolated static func telemetryFolders(in statuses: [BarApp: BarAppStatus]) -> [BarApp: URL] {
+        statuses.compactMapValues { status in
+            // History counts too: a Bar App with Tracking off still deletes
+            // old files on retention, so it is imported before it's lost.
+            status.state == .notInstalled ? nil : status.telemetryFolder
+        }
     }
 
     public func cards(now: Date) -> [LimitCard] {
@@ -44,31 +62,56 @@ public final class LimitsOverview {
         goneEver.filter { $0.app == app }
     }
 
+    /// Imports what's new and reloads the Overview. Returns once a pass that
+    /// started after this call has finished, so the caller sees anything
+    /// written before it asked. Calls that arrive during a pass share the one
+    /// pass that follows it rather than queuing one each.
     public func refresh(statuses: [BarApp: BarAppStatus]) async {
         states = statuses.mapValues(\.state)
-        // A poll and an app activation can both ask while an import is still
-        // reading; a second pass over the same files would only find nothing.
-        guard !isRefreshing else {
-            return
+        latestStatuses = statuses
+        requestedPasses += 1
+        let request = requestedPasses
+        while finishedPasses < request {
+            if let runningPass {
+                // That pass may have listed its files before this call's
+                // change landed, so wait for it and then go round again.
+                await runningPass.value
+                continue
+            }
+            let covers = requestedPasses
+            let statuses = latestStatuses
+            let pass = Task {
+                await importPass(statuses: statuses)
+                // Set inside the pass so every waiter sees it as soon as the
+                // pass's value is ready, before any of them loops again.
+                finishedPasses = max(finishedPasses, covers)
+                runningPass = nil
+            }
+            runningPass = pass
+            await pass.value
         }
-        isRefreshing = true
-        defer { isRefreshing = false }
+    }
 
+    private func importPass(statuses: [BarApp: BarAppStatus]) async {
         var problems: [String] = []
+        var imported = false
+        let folders = Self.telemetryFolders(in: statuses)
         for app in BarApp.allCases {
-            // History counts too: a Bar App with Tracking off still deletes
-            // old files on retention, so it is imported before it's lost.
-            guard let status = statuses[app], status.state != .notInstalled, let folder = status.telemetryFolder else {
+            guard let folder = folders[app] else {
                 continue
             }
             do {
                 let summary = try await importer.importMetrics(of: app, from: folder)
+                imported = true
                 for (file, reason) in summary.failures.sorted(by: { $0.key < $1.key }) {
                     problems.append("\(app.displayName) \(file): \(reason)")
                 }
             } catch {
                 problems.append("\(app.displayName): \(error.localizedDescription)")
             }
+        }
+        if imported {
+            lastImportedAt = now()
         }
 
         do {

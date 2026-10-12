@@ -80,6 +80,7 @@ public struct ArchiveError: Error, LocalizedError, Sendable {
 /// those get deleted by retention, so nothing here is ever rebuilt from them.
 public actor Archive {
     private static let schemaVersion: Int32 = 1
+    private static let busyTimeoutMilliseconds: Int32 = 10_000
 
     private let connection: Connection
     private var database: OpaquePointer { connection.handle }
@@ -99,6 +100,12 @@ public actor Archive {
         }
         // Owned from here on, so every later throw closes it on the way out.
         connection = Connection(handle: handle)
+        // Another window's or another Bar UI process's connection can hold
+        // the write lock for an import; wait it out rather than fail the pass.
+        let timeout = sqlite3_busy_timeout(handle, Self.busyTimeoutMilliseconds)
+        guard timeout == SQLITE_OK else {
+            throw ArchiveError(operation: "set its busy timeout", message: String(cString: sqlite3_errmsg(handle)), code: timeout)
+        }
         try Self.migrate(handle)
     }
 
@@ -106,8 +113,60 @@ public actor Archive {
     /// crash part way can't move the position past samples that were lost.
     /// Samples already in the Archive are left as they are.
     public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], perkSamples: [PerkSample] = [], perkGoneEvents: [PerkGoneEvent] = [], progress: ImportProgress) throws {
+        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents)
+        _ = try record(records, progress: progress, expecting: .anything)
+    }
+
+    /// Like `record(_:tokenSamples:resets:perkSamples:perkGoneEvents:progress:)`,
+    /// but only if the file's stored position is still `previous`, the one the
+    /// records were read from (nil when the file had none). Another window or
+    /// Bar UI process importing the same file may have moved it on in the
+    /// meantime; recording on top of that would count its skipped records
+    /// twice or move the position backwards. Returns false, recording
+    /// nothing, when the position had moved.
+    public func record(
+        _ samples: [LimitSample],
+        tokenSamples: [TokenSample] = [],
+        resets: [LimitReset] = [],
+        perkSamples: [PerkSample] = [],
+        perkGoneEvents: [PerkGoneEvent] = [],
+        progress: ImportProgress,
+        readFrom previous: ImportProgress?
+    ) throws -> Bool {
+        let records = Records(samples: samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents)
+        return try record(records, progress: progress, expecting: .exactly(previous))
+    }
+
+    private struct Records {
+        let samples: [LimitSample]
+        let tokenSamples: [TokenSample]
+        let resets: [LimitReset]
+        let perkSamples: [PerkSample]
+        let perkGoneEvents: [PerkGoneEvent]
+    }
+
+    private enum ExpectedProgress {
+        case anything
+        case exactly(ImportProgress?)
+    }
+
+    private func record(_ records: Records, progress: ImportProgress, expecting expected: ExpectedProgress) throws -> Bool {
+        let samples = records.samples
+        let tokenSamples = records.tokenSamples
+        let resets = records.resets
+        let perkSamples = records.perkSamples
+        let perkGoneEvents = records.perkGoneEvents
+        // IMMEDIATE takes the write lock before the position is checked, so
+        // no other connection can move it between the check and the write.
         try execute("BEGIN IMMEDIATE", operation: "start an import")
         do {
+            if case .exactly(let previous) = expected {
+                let stored = try storedProgress(of: progress.app, fileName: progress.fileName)
+                guard stored == previous else {
+                    try execute("ROLLBACK", operation: "give up a stale import")
+                    return false
+                }
+            }
             let describe = try prepare("""
                 INSERT INTO limits (app, limit_id, name, window_minutes, model_id, described_at)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -215,6 +274,7 @@ public actor Archive {
                 .integer(Int64(progress.droppedRecords))
             )
             try execute("COMMIT", operation: "finish an import")
+            return true
         } catch {
             do {
                 try execute("ROLLBACK", operation: "roll back a failed import")
@@ -290,6 +350,10 @@ public actor Archive {
     }
 
     public func progress(of app: BarApp, fileName: String) throws -> ImportProgress? {
+        try storedProgress(of: app, fileName: fileName)
+    }
+
+    private func storedProgress(of app: BarApp, fileName: String) throws -> ImportProgress? {
         let statement = try prepare("SELECT byte_offset, dropped_records FROM imported_files WHERE app = ?1 AND file_name = ?2")
         try statement.bind(.text(app.rawValue), .text(fileName))
         guard try statement.step() else {

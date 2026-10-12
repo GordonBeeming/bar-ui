@@ -115,12 +115,26 @@ public struct TelemetryImporter: Sendable {
         guard consumed > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
-        try await archive.record(samples, tokenSamples: tokenSamples, resets: resets, perkSamples: perkSamples, perkGoneEvents: perkGoneEvents, progress: ImportProgress(
-            app: app,
-            fileName: name,
-            byteOffset: offset + Int64(consumed),
-            droppedRecords: droppedSoFar + dropped
-        ))
+        let recorded = try await archive.record(
+            samples,
+            tokenSamples: tokenSamples,
+            resets: resets,
+            perkSamples: perkSamples,
+            perkGoneEvents: perkGoneEvents,
+            progress: ImportProgress(
+                app: app,
+                fileName: name,
+                byteOffset: offset + Int64(consumed),
+                droppedRecords: droppedSoFar + dropped
+            ),
+            readFrom: previous
+        )
+        guard recorded else {
+            // Another window or Bar UI process imported this file while it
+            // was being read here. What it recorded stands; the next pass
+            // carries on from its position.
+            return nil
+        }
         return (samples.count, resets.count, dropped)
     }
 }

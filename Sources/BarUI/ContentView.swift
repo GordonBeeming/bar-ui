@@ -7,8 +7,9 @@ struct ContentView: View {
     /// with Tracking off, one folder listing, so a short interval is cheap.
     private static let refreshInterval: Duration = .seconds(2)
 
-    /// Bar Apps sample every few minutes at most, so importing more often
-    /// than this would mostly find nothing new.
+    /// Folder watching brings new Telemetry in within a second or so; this
+    /// poll is the backstop for changes it can't see, such as on a network
+    /// volume, or a folder that was created after the watch began.
     private static let importInterval: Duration = .seconds(15)
 
     private static let home = FileManager.default.homeDirectoryForCurrentUser
@@ -36,6 +37,9 @@ struct ContentView: View {
                 }
             }
             .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom) {
+                ImportStatusFooter(lastImportedAt: archive.overview?.lastImportedAt, archiveFailure: archive.failure)
+            }
             .navigationSplitViewColumnWidth(min: 200, ideal: 232, max: 300)
         } detail: {
             detail(for: selection ?? .initial)
@@ -45,6 +49,9 @@ struct ContentView: View {
         }
         .task {
             await importTelemetry()
+        }
+        .task(id: watchedFolders) {
+            await importOnChange(in: watchedFolders)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Coming back from a Bar App's settings is the moment a change is
@@ -68,6 +75,23 @@ struct ContentView: View {
                 // Cancelled with the window; stop importing for it.
                 return
             }
+        }
+    }
+
+    /// Sorted so the watch only restarts when the set of folders changes,
+    /// not when the dictionary happens to iterate in another order.
+    private var watchedFolders: [URL] {
+        LimitsOverview.telemetryFolders(in: monitor.statuses).values.sorted { $0.path < $1.path }
+    }
+
+    private func importOnChange(in folders: [URL]) async {
+        guard let overview = archive.overview else {
+            return
+        }
+        // Ends when the task is cancelled, which happens when the folders
+        // change (a new watch takes over) or the window closes.
+        for await _ in TelemetryFolderWatcher.changes(in: folders) {
+            await overview.refresh(statuses: monitor.statuses)
         }
     }
 
