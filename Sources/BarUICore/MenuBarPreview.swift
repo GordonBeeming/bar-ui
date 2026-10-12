@@ -35,15 +35,20 @@ public final class MenuBarPreview {
     public func reload(now: Date) async {
         let cards = overview.cards(now: now)
         var burnRates: [String: BurnRate] = [:]
+        var paces: [String: BurnRate] = [:]
         var problems: [String] = []
         for app in Set(cards.map(\.app)) {
             do {
-                let histories = try await archive.limitHistories(of: app, since: now.addingTimeInterval(-BurnRate.lookback))
+                let histories = try await archive.limitHistories(of: app, since: now.addingTimeInterval(-BurnRate.longestPaceLookback))
                 for history in histories {
-                    burnRates["\(app.rawValue)/\(history.limit.id)"] = BurnRate(
+                    let key = "\(app.rawValue)/\(history.limit.id)"
+                    let resets = history.resets.map { Date(unixNano: $0.timeUnixNano) }
+                    burnRates[key] = BurnRate(samples: history.utilization, resetTimes: resets, now: now)
+                    paces[key] = BurnRate(
                         samples: history.utilization,
-                        resetTimes: history.resets.map { Date(unixNano: $0.timeUnixNano) },
-                        now: now
+                        resetTimes: resets,
+                        now: now,
+                        lookback: BurnRate.paceLookback(windowMinutes: history.limit.windowDurationMinutes)
                     )
                 }
             } catch {
@@ -51,7 +56,7 @@ public final class MenuBarPreview {
                 problems.append("\(app.displayName): \(error.localizedDescription)")
             }
         }
-        rows = cards.map { MenuBarLimitRow(card: $0, burnRate: burnRates[$0.id], now: now) }
+        rows = cards.map { MenuBarLimitRow(card: $0, burnRate: burnRates[$0.id], pace: paces[$0.id], now: now) }
         problem = problems.isEmpty ? nil : problems.joined(separator: "\n")
     }
 }

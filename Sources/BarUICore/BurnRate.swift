@@ -1,21 +1,45 @@
 import Foundation
 
-/// How fast a Limit's utilisation has been rising over the last hour, in
-/// percentage points per hour.
+/// How fast a Limit's utilisation has been rising, in percentage points per
+/// hour, over a span that looks back from now (the last hour by default).
 public struct BurnRate: Sendable, Equatable {
-    /// How far back the rate looks.
-    static let lookback: TimeInterval = 3_600
+    /// How far back the shown rate looks.
+    public static let defaultLookback: TimeInterval = 3_600
+
+    /// The longest span a pace warning ever looks back over, so the
+    /// history it needs stays bounded.
+    static let longestPaceLookback: TimeInterval = 24 * 3_600
 
     public let percentPerHour: Double
+    /// How far back this rate looked.
+    public let lookback: TimeInterval
+    /// The time between the first and last samples the rate came from.
+    public let span: TimeInterval
 
-    /// Nil when the last hour can't say how fast the Limit is rising: fewer
-    /// than two samples since the last reset, or nothing recent.
+    /// A rate drawn from samples covering less than half its lookback is
+    /// mostly the start of a Window and says little about the pace.
+    public var isSustained: Bool {
+        span >= lookback / 2
+    }
+
+    /// The span a pace warning looks back over: a tenth of the Window, so a
+    /// week is judged on most of a day, and never less than an hour.
+    static func paceLookback(windowMinutes: Int?) -> TimeInterval {
+        guard let windowMinutes, windowMinutes > 0 else {
+            return defaultLookback
+        }
+        return min(max(TimeInterval(windowMinutes) * 60 / 10, defaultLookback), longestPaceLookback)
+    }
+
+    /// Nil when the span can't say how fast the Limit is rising: fewer than
+    /// two samples since the last reset, or nothing recent.
     ///
     /// A reset ends the count whether or not the Bar App logged it. A fall in
     /// utilisation is treated the same way, because the reset event can reach
     /// the Archive after the samples that follow it.
-    public init?(samples: [ArchivedSample], resetTimes: [Date], now: Date) {
-        let windowStart = now.addingTimeInterval(-Self.lookback)
+    public init?(samples: [ArchivedSample], resetTimes: [Date], now: Date, lookback: TimeInterval = BurnRate.defaultLookback) {
+        self.lookback = lookback
+        let windowStart = now.addingTimeInterval(-lookback)
         let lastReset = resetTimes.filter { $0 <= now }.max()
         let floor = max(windowStart, lastReset ?? windowStart)
         let recent = samples
@@ -31,11 +55,11 @@ public struct BurnRate: Sendable, Equatable {
         guard let first = sinceFall.first, let last = sinceFall.last else {
             return nil
         }
-        let hours = last.time.timeIntervalSince(first.time) / 3_600
-        guard hours > 0 else {
+        span = last.time.timeIntervalSince(first.time)
+        guard span > 0 else {
             return nil
         }
-        percentPerHour = (last.value - first.value) / hours
+        percentPerHour = (last.value - first.value) / (span / 3_600)
     }
 
     /// How long until utilisation reaches 100% at this rate. Nil when it isn't

@@ -99,6 +99,29 @@ struct BurnRateTests {
         #expect(rising.timeUntilFull(from: 100) == nil)
     }
 
+    // Typed up front so the @Test macro doesn't have to infer the tuples.
+    private static let paceLookbacks: [(Int?, TimeInterval)] = [
+        (300, 3_600),
+        (10_080, 60_480),
+        (60, 3_600),
+        (nil, 3_600)
+    ]
+
+    @Test("A warning looks back over a tenth of the Window, and never less than an hour", arguments: paceLookbacks)
+    func paceLookback(windowMinutes: Int?, expected: TimeInterval) {
+        #expect(BurnRate.paceLookback(windowMinutes: windowMinutes) == expected)
+    }
+
+    @Test("A rate is sustained once its samples cover half the span it looks back over")
+    func sustained() throws {
+        let short = try #require(BurnRate(samples: Self.samples([(-120, 40), (0, 41)]), resetTimes: [], now: Self.now, lookback: 60_480))
+        let long = try #require(BurnRate(samples: Self.samples([(-600, 30), (-300, 35), (0, 41)]), resetTimes: [], now: Self.now, lookback: 60_480))
+
+        #expect(short.isSustained == false)
+        #expect(long.isSustained)
+        #expect(long.percentPerHour == 1.1)
+    }
+
     @Test("The projection only matters when 100% comes before the Window resets")
     func hitsBeforeReset() throws {
         let rate = try #require(BurnRate(samples: Self.samples([(-30, 40), (0, 50)]), resetTimes: [], now: Self.now))
