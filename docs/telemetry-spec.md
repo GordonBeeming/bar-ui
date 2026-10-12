@@ -60,9 +60,9 @@ A **Limit** is identified by `limit.id`, which MUST stay the same for the same L
 
 | Attribute | Required | Meaning |
 |---|---|---|
-| `limit.id` | yes | Stable ID. Claude: the API's limit key (for example `five_hour`, `seven_day`, `seven_day_opus`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. |
+| `limit.id` | yes | Stable ID. Claude: the API's limit `kind`, plus `:<model id>` when the limit is scoped to a model (for example `session`, `weekly_all`, `weekly_scoped:claude-opus-4-1`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. |
 | `limit.name` | yes | Display name, for example `Weekly · Opus` |
-| `limit.window.duration_minutes` | yes | The **Window** length as an int, for example `300` or `10080` |
+| `limit.window.duration_minutes` | when known | The **Window** length as an int, for example `300` or `10080`. Leave it out when the Bar App doesn't know it; never write `0`. Bar UI still shows the Limit, without the Window length. |
 | `model.id` | if the Limit applies to one model | |
 
 | Metric | Type | Unit | Value |
@@ -104,7 +104,7 @@ Rules:
 
 | Metric | Type | Value |
 |---|---|---|
-| `bar.perk.available` | Gauge | For `reset_credit` and `guest_pass`: how many are available. For `credit_grant`: the amount available, in `perk.currency`. |
+| `bar.perk.available` | Gauge | For `reset_credit` and `guest_pass`: how many are available. For `credit_grant`: the amount available in major units of `perk.currency` (dollars, not cents), converted with the currency's ISO 4217 exponent. |
 
 | Attribute | Required | Meaning |
 |---|---|---|
@@ -117,6 +117,7 @@ Rules:
 - The event name MUST go in the LogRecord's top-level `eventName` field, and nowhere else (not the body, not an attribute).
 - `severityNumber` is `9` (INFO). `timeUnixNano` and `observedTimeUnixNano` are both set.
 - `body` MAY hold a short sentence for people to read. Bar UI ignores it.
+- A Bar App MAY write its own events under its own prefix (`claude.*`, `codex.*`). Bar UI ignores event names and metric names it doesn't know; they don't count as non-conforming. Only a record that is missing `bar.spec.version`, or a `bar.*` record that breaks this spec, counts as non-conforming.
 
 | `eventName` | When | Attributes |
 |---|---|---|
@@ -144,7 +145,7 @@ Bar UI reads these keys from the Bar App's defaults domain (its bundle ID) and n
 | Key | Type | Meaning |
 |---|---|---|
 | `telemetryEnabled` | Bool | Tracking on or off |
-| `telemetryIntervalMinutes` | Int | 1 to 1440 |
+| `telemetryIntervalMinutes` | Int | 1 to 1440. A Bar App accepts any value in range, not only its picker presets. |
 | `telemetryRetentionDays` | Int | 0 means forever, otherwise 1 to 3650 |
 | `telemetryDirectory` | String | Absolute path of the Telemetry Folder. Missing means the default. |
 
