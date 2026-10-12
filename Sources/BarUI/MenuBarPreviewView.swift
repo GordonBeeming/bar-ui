@@ -99,13 +99,20 @@ private struct PreviewContent: View {
     private func tokens(usage: TokenUsage, pace: TokenPace) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Last 24 hours")
-                .font(.caption)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(0.4)
                 .foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .lastTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(DisplayFormat.tokens(usage.total))
-                        .font(.system(size: 26, weight: .bold))
-                        .monospacedDigit()
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(DisplayFormat.tokens(usage.total))
+                            .font(.system(size: 28, weight: .bold))
+                            .monospacedDigit()
+                        Text("tokens")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                     Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
                         .font(.caption)
                         .monospacedDigit()
@@ -114,7 +121,7 @@ private struct PreviewContent: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(cost(for: usage)?.value ?? "–")
-                        .font(.title3.weight(.semibold))
+                        .font(.title3.weight(.bold))
                         .monospacedDigit()
                     Text("API Cost")
                         .font(.caption)
@@ -144,24 +151,11 @@ private struct PreviewContent: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         } else {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(BarApp.allCases, id: \.self) { app in
                     let rows = preview.rows.filter { $0.app == app }
                     if !rows.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(app.brandColor)
-                                    .frame(width: 8, height: 8)
-                                    .accessibilityHidden(true)
-                                Text(app.displayName)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            ForEach(rows) { row in
-                                LimitRowView(row: row)
-                            }
-                        }
+                        BarAppLimitsCard(app: app, rows: rows)
                     }
                 }
             }
@@ -186,11 +180,41 @@ private struct HourlyChart: View {
     }
 }
 
+/// One Bar App's Limits grouped on a card, so the panel reads as one block
+/// per Bar App rather than one long list.
+private struct BarAppLimitsCard: View {
+    let app: BarApp
+    let rows: [MenuBarLimitRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(app.brandColor)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text(app.displayName)
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(rows.count == 1 ? "1 Limit" : "\(rows.count) Limits")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            ForEach(rows) { row in
+                LimitRowView(row: row)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
 private struct LimitRowView: View {
     let row: MenuBarLimitRow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.windowName)
                     .font(.callout)
@@ -198,15 +222,15 @@ private struct LimitRowView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
                 Text(DisplayFormat.points(row.percentUsed))
-                    .font(.callout.weight(.semibold))
+                    .font(.system(size: 17, weight: .bold))
                     .monospacedDigit()
+                    .foregroundStyle(row.severity == .normal ? AnyShapeStyle(.primary) : AnyShapeStyle(row.severity.labelColor))
             }
-            Gauge(value: min(max(row.utilization, 0), 100), in: 0...100) {
-                Text("\(row.appName) \(row.windowName) used")
-            }
-            .gaugeStyle(.linearCapacity)
-            .tint(row.severity.meterColor(for: row.app))
-            .labelsHidden()
+            // A drawn bar rather than Gauge: the linear Gauge styles show
+            // their label inside the bar even when labels are hidden.
+            Meter(fraction: min(max(row.utilization, 0), 100) / 100, color: row.severity.meterColor(for: row.app))
+                .accessibilityLabel("\(row.windowName) used")
+                .accessibilityValue(DisplayFormat.points(row.percentUsed))
             HStack {
                 Text(row.burnRateText)
                     .font(.caption)
@@ -226,5 +250,22 @@ private struct LimitRowView: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct Meter: View {
+    let fraction: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(proxy.size.width * fraction, fraction > 0 ? 6 : 0))
+            }
+        }
+        .frame(height: 6)
     }
 }

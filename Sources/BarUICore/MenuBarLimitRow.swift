@@ -34,10 +34,19 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
             projectionText = nil
             return
         }
-        let points = burnRate.percentPerHour.formatted(.number.precision(.fractionLength(0...1)))
-        burnRateText = "\(points)%/h"
+        burnRateText = Self.burnRateText(percentPerHour: burnRate.percentPerHour)
         projectionText = burnRate
             .timeUntilFullBeforeReset(from: card.utilization, resetsAt: card.resetsAt, now: now)
             .map { "At this rate it hits 100% in " + LimitCard.durationText(seconds: $0) }
+    }
+
+    /// The sign says the Window is filling up; a rate that shows as zero at
+    /// one decimal place reads as steady rather than "0%/h".
+    static func burnRateText(percentPerHour: Double) -> String {
+        let rounded = (percentPerHour * 10).rounded() / 10
+        guard rounded > 0 else {
+            return "Steady"
+        }
+        return "+" + rounded.formatted(.number.precision(.fractionLength(0...1))) + "%/h"
     }
 }

@@ -27,14 +27,14 @@ struct MenuBarPreviewTests {
         // but the Window resets in 1h20m.
         let session = try #require(rows["claudeBar/session"])
         #expect(session.percentUsed == 42)
-        #expect(session.burnRateText == "24%/h")
+        #expect(session.burnRateText == "+24%/h")
         #expect(session.projectionText == nil)
         #expect(session.isBurnRateHighlighted == false)
         #expect(session.resetText == "Resets in 1h 20m")
 
         // 60% to 61% is 12 an hour, so 100% is 3h15m away; the week has two days left.
         let weekly = try #require(rows["claudeBar/weekly_all"])
-        #expect(weekly.burnRateText == "12%/h")
+        #expect(weekly.burnRateText == "+12%/h")
         #expect(weekly.projectionText == "At this rate it hits 100% in 3h 15m")
         #expect(weekly.isBurnRateHighlighted)
 
