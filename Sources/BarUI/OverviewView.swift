@@ -38,7 +38,8 @@ struct OverviewView: View {
 
     @ViewBuilder
     private func content(overview: LimitsOverview, cards: [LimitCard], problem: String?, now: Date) -> some View {
-        if cards.isEmpty {
+        switch overview.layout {
+        case .nothingArchived:
             ContentUnavailableView {
                 Label("No Telemetry yet", systemImage: "chart.bar.xaxis")
             } description: {
@@ -48,7 +49,7 @@ struct OverviewView: View {
                     ProblemLabel(problem: problem)
                 }
             }
-        } else {
+        case .sections:
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let problem {
@@ -82,13 +83,22 @@ private struct LimitsStrip: View {
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: 16, alignment: .top)]
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            ForEach(cards) { card in
-                LimitCardView(card: card)
+        if cards.isEmpty {
+            ContentUnavailableView(
+                "No Limits being Tracked",
+                systemImage: "gauge.with.dots.needle.0percent",
+                description: Text("Current Limits show here while a Bar App is Tracking. Each Bar App's page keeps its Limit history.")
+            )
+            .frame(height: 160)
+        } else {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                ForEach(cards) { card in
+                    LimitCardView(card: card)
+                }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Current limits")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Current limits")
     }
 }
 

@@ -36,11 +36,25 @@ public enum LogEventParser {
         var dropped = 0
         let lines = OTLPLines.forEachRequest(in: data, as: ExportLogsServiceRequest.self) { request in
             for resourceLogs in request.resourceLogs ?? [] {
-                guard OTLPLines.isConforming(resource: resourceLogs.resource?.attributes ?? [], of: app) else {
+                let resource = resourceLogs.resource?.attributes ?? []
+                guard OTLPLines.isConforming(resource: resource, of: app) else {
                     dropped += 1
                     continue
                 }
-                for scope in resourceLogs.scopeLogs ?? [] {
+                let scopes = resourceLogs.scopeLogs ?? []
+                guard OTLPLines.hasSpecAttributes(resource: resource) else {
+                    if scopes.contains(where: holdsBarEvents) {
+                        dropped += 1
+                    }
+                    continue
+                }
+                for scope in scopes {
+                    guard OTLPLines.isConforming(scope: scope.scope, of: app) else {
+                        if holdsBarEvents(scope) {
+                            dropped += 1
+                        }
+                        continue
+                    }
                     for record in scope.logRecords ?? [] {
                         read(record, from: app, into: &records, dropped: &dropped)
                     }
@@ -55,6 +69,15 @@ public enum LogEventParser {
         limitAppearedEventName, limitDisappearedEventName, trackingStartedEventName
     ]
 
+    /// Whether the scope holds an event read here, or one whose name is broken
+    /// so it might be, making dropping it for a broken resource or scope
+    /// worth counting.
+    private static func holdsBarEvents(_ scope: ScopeLogs) -> Bool {
+        (scope.logRecords ?? []).contains { record in
+            record.isEventNameMalformed || record.eventName.map(readEventNames.contains) == true
+        }
+    }
+
     private static func read(_ record: LogRecord, from app: BarApp, into records: inout TelemetryRecords, dropped: inout Int) {
         if record.isEventNameMalformed {
             // It may be one of the events read here; it breaks the spec either way.
@@ -64,7 +87,7 @@ public enum LogEventParser {
         guard let name = record.eventName, readEventNames.contains(name) else {
             return
         }
-        guard !record.isMalformed else {
+        guard !record.isMalformed, record.isInfoWithObservedTime else {
             dropped += 1
             return
         }
@@ -198,12 +221,28 @@ private struct LogResource: Decodable {
 }
 
 private struct ScopeLogs: Decodable {
+    /// Nil when absent or not a scope object; either way it doesn't conform.
+    let scope: InstrumentationScope?
     let logRecords: [LogRecord]?
+
+    private enum CodingKeys: String, CodingKey {
+        case scope, logRecords
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // A scope that isn't an object reads as missing, which drops its
+        // bar.* events, rather than throwing away the whole line.
+        scope = try? container.decodeIfPresent(InstrumentationScope.self, forKey: .scope)
+        logRecords = try container.decodeIfPresent([LogRecord].self, forKey: .logRecords)
+    }
 }
 
 private struct LogRecord: Decodable {
     let eventName: String?
+    let severityNumber: Int?
     let timeUnixNano: Int64?
+    let observedTimeUnixNano: Int64?
     let attributes: [KeyValue]?
     /// The event name was present but not a string, so which event this is
     /// can't be told.
@@ -212,7 +251,13 @@ private struct LogRecord: Decodable {
     let isMalformed: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case eventName, timeUnixNano, attributes
+        case eventName, severityNumber, timeUnixNano, observedTimeUnixNano, attributes
+    }
+
+    /// Spec §5: every `bar.*` event is INFO (severity 9) and carries the time
+    /// it was observed as well as the time it happened.
+    var isInfoWithObservedTime: Bool {
+        severityNumber == 9 && (observedTimeUnixNano ?? 0) > 0
     }
 
     init(from decoder: any Decoder) throws {
@@ -220,7 +265,9 @@ private struct LogRecord: Decodable {
         var nameMalformed = false
         var malformed = false
         eventName = container.decodeLeniently(String.self, forKey: .eventName, malformed: &nameMalformed)
+        severityNumber = container.decodeLeniently(Int.self, forKey: .severityNumber, malformed: &malformed)
         timeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .timeUnixNano, malformed: &malformed)?.value
+        observedTimeUnixNano = container.decodeLeniently(OTLPInt.self, forKey: .observedTimeUnixNano, malformed: &malformed)?.value
         attributes = container.decodeLeniently([KeyValue].self, forKey: .attributes, malformed: &malformed)
         isEventNameMalformed = nameMalformed
         isMalformed = nameMalformed || malformed || attributes?.isMalformed == true

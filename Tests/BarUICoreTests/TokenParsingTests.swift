@@ -73,7 +73,7 @@ struct TokenParsingTests {
     }
 
     static func line(points: [String], temporality: Int = 2, monotonic: Bool = true) -> Data {
-        let json = #"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"claudebar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"bar.tokens","sum":{"aggregationTemporality":\#(temporality),"isMonotonic":\#(monotonic),"dataPoints":[\#(points.joined(separator: ","))]}}]}]}]}"#
+        let json = #"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "claudebar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "claudebar")),"metrics":[{"name":"bar.tokens","unit":"{token}","sum":{"aggregationTemporality":\#(temporality),"isMonotonic":\#(monotonic),"dataPoints":[\#(points.joined(separator: ","))]}}]}]}]}"#
         return Data((json + "\n").utf8)
     }
 }

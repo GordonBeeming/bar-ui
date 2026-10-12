@@ -127,6 +127,16 @@ struct OverviewEventsTests {
         #expect(events.map(\.date) == [Self.t0 + 2 * Self.minute, resetAt, Self.t0 + Self.minute].map { Date(unixNano: $0) })
     }
 
+    @Test("A range that opens on a reset starts that Window from normal, so its first high sample is a crossing")
+    func rangeOpeningOnAReset() {
+        let reset = LimitReset(app: .claudeBar, limit: session, timeUnixNano: Self.t0 - Self.minute, utilizationLast: 60, nextResetsAt: nil)
+
+        let events = timeline(histories: [history(utilization: [80], resets: [reset])])
+
+        #expect(events.map(\.kind) == [.runningLow, .limitReset])
+        #expect(events.first?.date == Date(unixNano: Self.t0))
+    }
+
     @Test("Within one Window a Limit is near limit at most once, even after falling back")
     func onceEachPerWindow() {
         let events = timeline(histories: [history(utilization: [40, 76, 80, 91, 95, 20, 91])])

@@ -18,6 +18,10 @@ public final class LimitsOverview {
     /// Why the last refresh couldn't read everything, for the Overview to show.
     public private(set) var problem: String?
 
+    /// Whether the Overview shows its sections or the whole-page empty
+    /// state. Empty until a refresh has looked in the Archive.
+    public private(set) var layout: OverviewLayout = .nothingArchived
+
     /// Per Bar App, what was dropped for not following the Telemetry Spec.
     /// A Bar App with nothing dropped has no entry.
     public private(set) var skippedRecords: [BarApp: SkippedRecordsNotice] = [:]
@@ -194,6 +198,13 @@ public final class LimitsOverview {
             }
         }
         skippedRecords = notices
+
+        do {
+            layout = OverviewLayout(holdsTelemetry: try await archive.holdsTelemetry())
+        } catch {
+            problems.append(error.localizedDescription)
+            layout = OverviewLayout(holdsTelemetry: nil)
+        }
         problem = problems.isEmpty ? nil : problems.joined(separator: "\n")
     }
 }

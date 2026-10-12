@@ -125,11 +125,9 @@ enum PerkEventLine {
     }
 
     static func logs(service: String, specVersion: String = "1", events: [Event]) -> Data {
-        let resource: [[String: Any]] = [
-            ["key": "service.name", "value": ["stringValue": service]],
-            ["key": "bar.spec.version", "value": ["stringValue": specVersion]]
-        ]
-        let request: [String: Any] = ["resourceLogs": [["resource": ["attributes": resource], "scopeLogs": [["logRecords": events.map(record)]]]]]
+        let resource = ConformingEnvelope.resourceAttributes(service: service, specVersion: specVersion)
+        let scope = ConformingEnvelope.scope(service: service)
+        let request: [String: Any] = ["resourceLogs": [["resource": ["attributes": resource], "scopeLogs": [["scope": scope, "logRecords": events.map(record)]]]]]
         return PerkLine.line(request)
     }
 

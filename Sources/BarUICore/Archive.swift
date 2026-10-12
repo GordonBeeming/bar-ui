@@ -151,4 +151,22 @@ public actor Archive {
     func prepare(_ sql: String) throws -> Statement {
         try Statement(sql: sql, database: database)
     }
+
+    /// Whether any Telemetry has been archived, of any kind and from any time.
+    public func holdsTelemetry() throws -> Bool {
+        let statement = try prepare("""
+            SELECT EXISTS (SELECT 1 FROM limit_samples)
+                OR EXISTS (SELECT 1 FROM token_samples)
+                OR EXISTS (SELECT 1 FROM limit_resets)
+                OR EXISTS (SELECT 1 FROM perk_samples)
+                OR EXISTS (SELECT 1 FROM perk_gone_events)
+                OR EXISTS (SELECT 1 FROM perk_available_events)
+                OR EXISTS (SELECT 1 FROM limit_events)
+                OR EXISTS (SELECT 1 FROM tracking_starts)
+            """)
+        guard try statement.step() else {
+            return false
+        }
+        return statement.int64(at: 0) != 0
+    }
 }

@@ -102,10 +102,10 @@ struct MetricsParserTests {
 
     @Test("A data point with an attribute value of the wrong type is dropped and counted, while its neighbour on the line is kept")
     func wrongTypedAttributeValue() {
-        let resource = #"{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]}"#
+        let resource = ConformingEnvelope.resourceJSON(service: "codexbar")
         let good = #"{"attributes":[{"key":"limit.id","value":{"stringValue":"codex:10080"}},{"key":"limit.name","value":{"stringValue":"Weekly"}}],"timeUnixNano":"1791791100000000000","asDouble":10}"#
         let bad = #"{"attributes":[{"key":"limit.id","value":{"stringValue":"codex:300"}},{"key":"limit.name","value":{"stringValue":"Session"}},{"key":"model.id","value":{"stringValue":7}}],"timeUnixNano":"1791791100000000000","asDouble":20}"#
-        let line = #"{"resourceMetrics":[{"resource":\#(resource),"scopeMetrics":[{"metrics":[{"name":"bar.limit.utilization","gauge":{"dataPoints":[\#(good),\#(bad)]}}]}]}]}"# + "\n"
+        let line = #"{"resourceMetrics":[{"resource":\#(resource),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "codexbar")),"metrics":[{"name":"bar.limit.utilization","unit":"%","gauge":{"dataPoints":[\#(good),\#(bad)]}}]}]}]}"# + "\n"
 
         let result = MetricsParser.parse(Data(line.utf8), from: .codexBar)
 
@@ -115,7 +115,7 @@ struct MetricsParserTests {
 
     @Test("A token Sum whose data points aren't a list is dropped and counted")
     func wrongTypedDataPoints() {
-        let line = Data((#"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"bar.tokens","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":"none"}}]}]}]}"# + "\n").utf8)
+        let line = Data((#"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "codexbar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "codexbar")),"metrics":[{"name":"bar.tokens","unit":"{token}","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":"none"}}]}]}]}"# + "\n").utf8)
 
         let result = MetricsParser.parse(line, from: .codexBar)
 
@@ -125,7 +125,7 @@ struct MetricsParserTests {
 
     @Test("Metrics the spec doesn't ask Bar UI to read are skipped without counting as non-conforming")
     func unknownMetricsIgnored() throws {
-        let line = Data((#"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"codex.usage.used_percent","sum":{"dataPoints":[{"asDouble":3}]}}]}]}]}"# + "\n").utf8)
+        let line = Data((#"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "codexbar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "codexbar")),"metrics":[{"name":"codex.usage.used_percent","sum":{"dataPoints":[{"asDouble":3}]}}]}]}]}"# + "\n").utf8)
 
         let result = MetricsParser.parse(line, from: .codexBar)
 
@@ -155,14 +155,12 @@ enum MetricsLine {
     }
 
     static func limits(service: String, specVersion: String? = "1", points: [Point]) -> Data {
-        var resource: [[String: Any]] = [["key": "service.name", "value": ["stringValue": service]]]
-        if let specVersion {
-            resource.append(["key": "bar.spec.version", "value": ["stringValue": specVersion]])
-        }
+        let resource = ConformingEnvelope.resourceAttributes(service: service, specVersion: specVersion)
         let metrics: [[String: Any]] = Dictionary(grouping: points, by: \.metric).sorted { $0.key > $1.key }.map { name, points in
-            ["name": name, "gauge": ["dataPoints": points.map(dataPoint)]]
+            ["name": name, "unit": name == "bar.limit.resets_at" ? "s" : "%", "gauge": ["dataPoints": points.map(dataPoint)]]
         }
-        let request: [String: Any] = ["resourceMetrics": [["resource": ["attributes": resource], "scopeMetrics": [["metrics": metrics]]]]]
+        let scope = ConformingEnvelope.scope(service: service)
+        let request: [String: Any] = ["resourceMetrics": [["resource": ["attributes": resource], "scopeMetrics": [["scope": scope, "metrics": metrics]]]]]
         do {
             return try JSONSerialization.data(withJSONObject: request) + Data("\n".utf8)
         } catch {

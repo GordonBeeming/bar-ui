@@ -36,6 +36,24 @@ enum OTLPLines {
         attributes.string("bar.spec.version") == "1" && attributes.string("service.name") == app.serviceName
     }
 
+    /// The rest of the resource attributes spec §3 requires. Only the `bar.*`
+    /// records under a resource missing them are non-conforming; app-prefixed
+    /// ones follow their own app's rules.
+    static func hasSpecAttributes(resource attributes: [KeyValue]) -> Bool {
+        attributes.string("service.version")?.isEmpty == false
+            && attributes.string("host.name")?.isEmpty == false
+            && attributes.string("os.type") == "darwin"
+    }
+
+    /// Whether the instrumentation scope is the one spec §3 names for this
+    /// Bar App, with the app version set.
+    static func isConforming(scope: InstrumentationScope?, of app: BarApp) -> Bool {
+        guard let scope, !scope.isMalformed else {
+            return false
+        }
+        return scope.name == app.telemetryScopeName && scope.version?.isEmpty == false
+    }
+
     /// The Limit attributes every `bar.limit.*` metric point and event carries.
     /// Nil when one the spec requires is missing or broken.
     static func limitDescriptor(from attributes: [KeyValue]) -> LimitDescriptor? {
@@ -57,7 +75,34 @@ enum OTLPLines {
     }
 }
 
+extension BarApp {
+    /// Spec §3's `com.gordonbeeming.<AppName>.telemetry`, which is the bundle
+    /// identifier with `.telemetry` on the end.
+    var telemetryScopeName: String {
+        "\(bundleIdentifier).telemetry"
+    }
+}
+
 // MARK: - OTLP/JSON shapes both parsers read
+
+struct InstrumentationScope: Decodable {
+    let name: String?
+    let version: String?
+    /// A field was present but not a string.
+    let isMalformed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name, version
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var malformed = false
+        name = container.decodeLeniently(String.self, forKey: .name, malformed: &malformed)
+        version = container.decodeLeniently(String.self, forKey: .version, malformed: &malformed)
+        isMalformed = malformed
+    }
+}
 
 struct KeyValue: Decodable {
     let key: String

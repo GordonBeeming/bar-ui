@@ -52,7 +52,7 @@ struct SkippedRecordsTests {
     func conformingFilesReportNothing() async throws {
         let fixture = try ImportFixture()
         try fixture.copyFixture("claudebar-metrics-2026-10-12.jsonl", to: fixture.claudeFolder)
-        let ignorable = #"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"claudebar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"claude.usage.used_percent","sum":{"dataPoints":[{"asDouble":3}]}},{"name":"something.else","gauge":{"dataPoints":[{"asDouble":3}]}}]}]}]}"# + "\n"
+        let ignorable = #"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "claudebar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "claudebar")),"metrics":[{"name":"claude.usage.used_percent","sum":{"dataPoints":[{"asDouble":3}]}},{"name":"something.else","gauge":{"dataPoints":[{"asDouble":3}]}}]}]}]}"# + "\n"
         try Data(ignorable.utf8).write(to: fixture.claudeFolder.appendingPathComponent("claudebar-metrics-2026-10-11.jsonl"))
 
         _ = try await fixture.importer.importMetrics(of: .claudeBar, from: fixture.claudeFolder)
@@ -111,7 +111,8 @@ struct SkippedRecordsTests {
         let time = #""timeUnixNano":"1791791100000000000""#
 
         func dropped(_ point: String, metric: String = "bar.limit.utilization", type: String = "gauge") -> Int {
-            let line = #"{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"claudebar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeMetrics":[{"metrics":[{"name":"\#(metric)","\#(type)":{"dataPoints":[{\#(point)}]}}]}]}]}"# + "\n"
+            let unit = metric == "bar.limit.resets_at" ? "s" : "%"
+            let line = #"{"resourceMetrics":[{"resource":\#(ConformingEnvelope.resourceJSON(service: "claudebar")),"scopeMetrics":[{"scope":\#(ConformingEnvelope.scopeJSON(service: "claudebar")),"metrics":[{"name":"\#(metric)","unit":"\#(unit)","\#(type)":{"dataPoints":[{\#(point)}]}}]}]}]}"# + "\n"
             return MetricsParser.parse(Data(line.utf8), from: .claudeBar).droppedRecords
         }
 

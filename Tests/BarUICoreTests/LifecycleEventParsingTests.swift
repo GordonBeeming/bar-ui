@@ -111,10 +111,7 @@ enum LifecycleEventLine {
     }
 
     static func logs(service: String, events: [Event]) -> Data {
-        let resource: [[String: Any]] = [
-            ["key": "service.name", "value": ["stringValue": service]],
-            ["key": "bar.spec.version", "value": ["stringValue": "1"]]
-        ]
+        let resource = ConformingEnvelope.resourceAttributes(service: service)
         let records: [[String: Any]] = events.map {
             [
                 "eventName": $0.name,
@@ -124,6 +121,6 @@ enum LifecycleEventLine {
                 "attributes": $0.attributes
             ]
         }
-        return PerkLine.line(["resourceLogs": [["resource": ["attributes": resource], "scopeLogs": [["logRecords": records]]]]])
+        return PerkLine.line(["resourceLogs": [["resource": ["attributes": resource], "scopeLogs": [["scope": ConformingEnvelope.scope(service: service), "logRecords": records]]]]])
     }
 }

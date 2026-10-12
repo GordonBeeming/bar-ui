@@ -27,10 +27,10 @@ struct BarAppPageView: View {
                     .textSelection(.enabled)
             }
 
-            if status.state == .off || status.state == .offWithHistory, let settings = status.settings {
-                TrackingOffBanner(hasHistory: status.state == .offWithHistory) {
-                    editing = TrackingSettingsEditing(app: app, current: settings, startEnabled: true)
-                }
+            if let notice = BarAppPageNotice(state: status.state) {
+                NoticeBanner(notice: notice, appName: app.displayName, turnOn: status.settings.map { settings in
+                    { editing = TrackingSettingsEditing(app: app, current: settings, startEnabled: true) }
+                })
             }
 
             if let skipped {
@@ -66,15 +66,12 @@ struct BarAppPageView: View {
         }
     }
 
+    /// The Archive-backed sections show whatever the Bar App's state, because
+    /// the Archive keeps what it recorded even after it's uninstalled. Each
+    /// section has its own empty state.
     @ViewBuilder
     private var content: some View {
-        if status.state == .notInstalled {
-            ContentUnavailableView(
-                "\(app.displayName) isn't installed",
-                systemImage: "app.dashed",
-                description: Text("Install \(app.displayName) to record Telemetry for Bar UI to show.")
-            )
-        } else if let history {
+        if let history {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     LimitHistorySection(app: app, model: history)
@@ -110,20 +107,25 @@ struct BarAppPageView: View {
     }
 }
 
-private struct TrackingOffBanner: View {
-    let hasHistory: Bool
-    let turnOn: () -> Void
+private struct NoticeBanner: View {
+    let notice: BarAppPageNotice
+    let appName: String
+    /// Nil when there are no Tracking settings to change, as when the Bar
+    /// App isn't installed.
+    let turnOn: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.circle")
+            Image(systemName: notice == .notInstalled ? "app.dashed" : "exclamationmark.circle")
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
-            Text("\(Text("Tracking is off.").bold()) \(hasHistory ? "You're looking at History." : "Nothing is being recorded.")")
+            Text("\(Text(notice.title(appName: appName)).bold()) \(notice.message(appName: appName))")
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Turn on Tracking…", action: turnOn)
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+            if notice != .notInstalled, let turnOn {
+                Button("Turn on Tracking…", action: turnOn)
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

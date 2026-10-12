@@ -89,7 +89,9 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
             return samples.isEmpty ? [] : [samples.map(point)]
         }
         let seconds = zip(samples, samples.dropFirst()).map { Double($1.timeUnixNano - $0.timeUnixNano) / 1_000_000_000 }
-        let usual = seconds.sorted()[seconds.count / 2]
+        // The lower middle for an even count: with few intervals, the upper
+        // middle can be the gap itself, which would hide it.
+        let usual = seconds.sorted()[(seconds.count - 1) / 2]
         let threshold = max(usual * gapIntervals, smallestGap)
 
         var segments: [[Point]] = [[point(samples[0])]]

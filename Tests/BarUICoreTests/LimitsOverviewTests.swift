@@ -34,6 +34,43 @@ struct LimitsOverviewTests {
         #expect(overview.problem == nil)
     }
 
+    @Test("The whole-page empty state is only for an Archive that holds nothing at all")
+    func emptyArchiveIsNothingArchived() async throws {
+        let fixture = try ImportFixture()
+        let overview = LimitsOverview(archive: fixture.archive)
+
+        await overview.refresh(statuses: [.claudeBar: Self.status(.tracking, folder: fixture.claudeFolder)])
+
+        #expect(overview.layout == .nothingArchived)
+    }
+
+    @Test("With nothing Tracking, archived Limits and tokens still get their sections rather than the empty page")
+    func archivedTelemetryWithoutCards() async throws {
+        let fixture = try ImportFixture()
+        try fixture.copyFixture("claudebar-metrics-2026-10-12.jsonl", to: fixture.claudeFolder)
+        let overview = LimitsOverview(archive: fixture.archive)
+
+        await overview.refresh(statuses: [.claudeBar: Self.status(.offWithHistory, folder: fixture.claudeFolder)])
+
+        #expect(overview.cards(now: Self.now).isEmpty)
+        #expect(overview.layout == .sections)
+    }
+
+    @Test("An Archive holding only Events still shows its sections")
+    func eventsOnly() async throws {
+        let fixture = try ImportFixture()
+        try fixture.write(
+            LifecycleEventLine.logs(service: "codexbar", events: [.tracking(minutes: 5, time: 1_791_791_100_000_000_000)]),
+            named: "codexbar-logs-2026-10-12.jsonl", in: fixture.codexFolder
+        )
+        let overview = LimitsOverview(archive: fixture.archive)
+
+        await overview.refresh(statuses: [.codexBar: Self.status(.tracking, folder: fixture.codexFolder)])
+
+        #expect(overview.cards(now: Self.now).isEmpty)
+        #expect(overview.layout == .sections)
+    }
+
     @Test("Refreshing also brings in a Bar App's available and gone Perks")
     func refreshShowsPerks() async throws {
         let fixture = try ImportFixture()

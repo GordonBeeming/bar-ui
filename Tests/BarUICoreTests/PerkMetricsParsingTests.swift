@@ -114,12 +114,10 @@ enum PerkLine {
     }
 
     static func metrics(service: String, points: [Point]) -> Data {
-        let resource: [[String: Any]] = [
-            ["key": "service.name", "value": ["stringValue": service]],
-            ["key": "bar.spec.version", "value": ["stringValue": "1"]]
-        ]
+        let resource = ConformingEnvelope.resourceAttributes(service: service)
         let metric: [String: Any] = ["name": "bar.perk.available", "gauge": ["dataPoints": points.map(dataPoint)]]
-        let request: [String: Any] = ["resourceMetrics": [["resource": ["attributes": resource], "scopeMetrics": [["metrics": [metric]]]]]]
+        let scope = ConformingEnvelope.scope(service: service)
+        let request: [String: Any] = ["resourceMetrics": [["resource": ["attributes": resource], "scopeMetrics": [["scope": scope, "metrics": [metric]]]]]]
         return line(request)
     }
 

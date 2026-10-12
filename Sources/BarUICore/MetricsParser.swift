@@ -6,6 +6,27 @@ import Foundation
 public enum MetricsParser {
     private static let tokensMetricName = "bar.tokens"
 
+    /// The units spec §4 gives. `bar.perk.available` has none in the spec, so
+    /// its unit isn't checked.
+    private static let specUnits: [String: String] = [
+        LimitMetric.utilization.rawValue: "%",
+        LimitMetric.resetsAt.rawValue: "s",
+        tokensMetricName: "{token}"
+    ]
+
+    private static func isReadMetric(_ name: String?) -> Bool {
+        guard let name else {
+            return false
+        }
+        return name == tokensMetricName || name == PerkSample.metricName || LimitMetric(rawValue: name) != nil
+    }
+
+    /// Whether the scope holds a `bar.*` metric Bar UI reads, so dropping it
+    /// for a broken resource or scope is worth counting.
+    private static func holdsReadMetrics(_ scope: ScopeMetrics) -> Bool {
+        (scope.metrics ?? []).contains { isReadMetric($0.name) }
+    }
+
     public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
         var records = TelemetryRecords()
         var perks = PerkAccumulator()
@@ -34,8 +55,25 @@ public enum MetricsParser {
             dropped += 1
             return
         }
-        for scope in resourceMetrics.scopeMetrics ?? [] {
+        let scopes = resourceMetrics.scopeMetrics ?? []
+        guard OTLPLines.hasSpecAttributes(resource: resource) else {
+            if scopes.contains(where: holdsReadMetrics) {
+                dropped += 1
+            }
+            return
+        }
+        for scope in scopes {
+            guard OTLPLines.isConforming(scope: scope.scope, of: app) else {
+                if holdsReadMetrics(scope) {
+                    dropped += 1
+                }
+                continue
+            }
             for metric in scope.metrics ?? [] {
+                if let name = metric.name, let unit = specUnits[name], metric.unit != unit {
+                    dropped += 1
+                    continue
+                }
                 if metric.name == Self.tokensMetricName {
                     readTokens(metric, from: app, into: &tokens, dropped: &dropped)
                     continue
@@ -159,11 +197,26 @@ private struct Resource: Decodable {
 }
 
 private struct ScopeMetrics: Decodable {
+    /// Nil when absent or not a scope object; either way it doesn't conform.
+    let scope: InstrumentationScope?
     let metrics: [Metric]?
+
+    private enum CodingKeys: String, CodingKey {
+        case scope, metrics
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // A scope that isn't an object reads as missing, which drops its
+        // bar.* metrics, rather than throwing away the whole line.
+        scope = try? container.decodeIfPresent(InstrumentationScope.self, forKey: .scope)
+        metrics = try container.decodeIfPresent([Metric].self, forKey: .metrics)
+    }
 }
 
 private struct Metric: Decodable {
     let name: String?
+    let unit: String?
     let gauge: Gauge?
     let sum: Sum?
 }

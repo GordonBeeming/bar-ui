@@ -116,20 +116,20 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
 
     /// Each Window says running low and near limit at most once, the first
     /// time the Limit gets there, so a Limit hovering on a threshold doesn't
-    /// fill the list. A reset starts a new Window from normal. The Limit's
-    /// first sample ever has nothing before it, so how it got there is
-    /// unknown and it never counts as a crossing.
+    /// fill the list. A reset starts a new Window from normal, whether or not
+    /// a sample came before it. Without a reset, the Limit's first sample ever
+    /// has nothing before it, so how it got there is unknown and it never
+    /// counts as a crossing.
     private static func crossings(in history: LimitHistory) -> [OverviewEvent] {
         var events: [OverviewEvent] = []
         let resets = history.resets.map(\.timeUnixNano).sorted()
         var nextReset = resets.startIndex
-        // The worst the current Window has been; nil until the Limit has a sample.
+        // The worst the current Window has been; nil while nothing says
+        // where it started.
         var reached = history.peakBeforeRange.map(LimitCard.Severity.init(utilization:))
         for sample in history.utilization.sorted(by: { $0.timeUnixNano < $1.timeUnixNano }) {
             while nextReset < resets.endIndex, resets[nextReset] <= sample.timeUnixNano {
-                if reached != nil {
-                    reached = .normal
-                }
+                reached = .normal
                 nextReset += 1
             }
             let severity = LimitCard.Severity(utilization: sample.value)

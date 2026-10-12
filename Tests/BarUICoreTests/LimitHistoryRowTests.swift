@@ -44,6 +44,18 @@ struct LimitHistoryRowTests {
         #expect(row.segments.map { $0.map(\.percent) } == [[10, 12, 14, 16], [5, 7]])
     }
 
+    @Test("With only two intervals, the long one isn't taken as the usual pace, so the gap still splits")
+    func gapAmongFewSamples() {
+        let history = Self.history(utilization: [
+            (0, 10),
+            (6 * 3600, 5), (6 * 3600 + 300, 7)
+        ], resets: [])
+
+        let row = LimitHistoryRow(history: history)
+
+        #expect(row.segments.map { $0.map(\.percent) } == [[10], [5, 7]])
+    }
+
     @Test("Samples at the usual pace stay one line")
     func noGap() {
         let history = Self.history(utilization: [(0, 10), (300, 12), (600, 14), (1_000, 16)], resets: [])

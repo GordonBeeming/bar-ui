@@ -94,6 +94,32 @@ struct LogEventParserTests {
         #expect(result.droppedRecords == 2)
     }
 
+    static let missingSeverityOrObservedTime: [String] = [
+        #""observedTimeUnixNano":"1791791100000000000","#,
+        #""severityNumber":13,"observedTimeUnixNano":"1791791100000000000","#,
+        #""severityNumber":9,"#,
+        ""
+    ]
+
+    @Test("A known event that isn't severity 9 or has no observed time breaks spec §5, so it is dropped and counted", arguments: missingSeverityOrObservedTime)
+    func severityAndObservedTimeRequired(header: String) {
+        let line = Self.line(header: header, attributes: Self.limit + [Self.utilizationLast(10)])
+
+        let result = LogEventParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.resets.isEmpty)
+        #expect(result.droppedRecords == 1)
+    }
+
+    @Test("An app-prefixed event without severity or observed time is still ignored, not counted")
+    func appEventsKeepTheirOwnRules() {
+        let line = Self.line(eventName: "codex.usage.details", header: "", attributes: [])
+
+        let result = LogEventParser.parse(Data(line.utf8), from: .codexBar)
+
+        #expect(result.droppedRecords == 0)
+    }
+
     @Test("A trailing partial line waits for the next read")
     func partialLine() {
         let complete = Self.line(attributes: Self.limit + [Self.utilizationLast(10)])
@@ -115,10 +141,19 @@ struct LogEventParserTests {
         #"{"key":"limit.utilization.last","value":{"doubleValue":\#(value)}}"#
     }
 
-    /// One conforming CodexBar log line holding a single `bar.limit.reset`.
-    private static func line(attributes: [String]) -> String {
-        """
-        {"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"codexbar"}},{"key":"bar.spec.version","value":{"stringValue":"1"}}]},"scopeLogs":[{"logRecords":[{"timeUnixNano":"1791791100000000000","eventName":"bar.limit.reset","attributes":[\(attributes.joined(separator: ","))]}]}]}]}
+    private static let severityAndObserved = #""severityNumber":9,"observedTimeUnixNano":"1791791100000000000","#
+
+    /// One CodexBar log line holding a single event, `bar.limit.reset` unless
+    /// named. `header` is the record's fields ahead of its time and name.
+    private static func line(
+        eventName: String = "bar.limit.reset",
+        header: String = severityAndObserved,
+        attributes: [String]
+    ) -> String {
+        let resource = ConformingEnvelope.resourceJSON(service: "codexbar")
+        let scope = ConformingEnvelope.scopeJSON(service: "codexbar")
+        return """
+        {"resourceLogs":[{"resource":\(resource),"scopeLogs":[{"scope":\(scope),"logRecords":[{\(header)"timeUnixNano":"1791791100000000000","eventName":"\(eventName)","attributes":[\(attributes.joined(separator: ","))]}]}]}]}
 
         """
     }
