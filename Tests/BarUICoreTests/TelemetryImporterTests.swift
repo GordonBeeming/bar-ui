@@ -91,12 +91,12 @@ struct TelemetryImporterTests {
         #expect(history.map(\.value) == [17, 18.5])
     }
 
-    @Test("Only this Bar App's metrics files are read, and a missing folder isn't an error")
+    @Test("Only this Bar App's own files are read, and a missing folder isn't an error")
     func onlyMetricsFiles() async throws {
         let fixture = try ImportFixture()
         let codexMetrics = try Fixtures.data(named: "codexbar-metrics-2026-10-12.jsonl")
         try codexMetrics.write(to: fixture.claudeFolder.appendingPathComponent("codexbar-metrics-2026-10-12.jsonl"))
-        try codexMetrics.write(to: fixture.claudeFolder.appendingPathComponent("claudebar-logs-2026-10-12.jsonl"))
+        try codexMetrics.write(to: fixture.claudeFolder.appendingPathComponent("codexbar-logs-2026-10-12.jsonl"))
         try codexMetrics.write(to: fixture.claudeFolder.appendingPathComponent("claudebar-metrics-latest.jsonl"))
 
         let summary = try await fixture.importer.importMetrics(of: .claudeBar, from: fixture.claudeFolder)

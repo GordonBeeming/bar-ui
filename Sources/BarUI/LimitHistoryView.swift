@@ -1,0 +1,165 @@
+import BarUICore
+import Charts
+import SwiftUI
+
+/// The Limits section of a Bar App's page: one row per Limit, each with its
+/// utilisation over the chosen range and a marker at every reset.
+struct LimitHistorySection: View {
+    /// Bar Apps sample every few minutes at most, and the Overview imports on
+    /// its own schedule; re-reading the Archive at this pace picks both up.
+    private static let reloadInterval: Duration = .seconds(15)
+
+    let app: BarApp
+    let model: LimitHistoryModel
+
+    @State private var range: HistoryRange = .week
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Limits")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Picker("Range", selection: $range) {
+                    ForEach(HistoryRange.allCases) { range in
+                        Text(range.title).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+
+            if let problem = model.problem {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+
+            if model.rows.isEmpty {
+                ContentUnavailableView(
+                    "No Limits recorded yet",
+                    systemImage: "chart.xyaxis.line",
+                    description: Text("\(app.displayName)'s Limits show up here once it has recorded Telemetry.")
+                )
+            } else {
+                ForEach(model.rows) { row in
+                    LimitHistoryRowView(row: row, brand: app.brandColor, range: range)
+                }
+            }
+        }
+        .task(id: range) {
+            while !Task.isCancelled {
+                await model.load(app: app, range: range, now: .now)
+                do {
+                    try await Task.sleep(for: Self.reloadInterval)
+                } catch {
+                    // Cancelled because the range changed or the page went away.
+                    return
+                }
+            }
+        }
+    }
+}
+
+private struct LimitHistoryRowView: View {
+    let row: LimitHistoryRow
+    let brand: Color
+    let range: HistoryRange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.name)
+                        .fontWeight(.semibold)
+                    Text(row.windowText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                stat(
+                    row.percentUsedNow.map { "\($0)%" } ?? "No samples",
+                    caption: row.latestSampleAt.map { "used, as of \($0.formatted(Self.sampleFormat))" } ?? "used"
+                )
+                stat(row.unusedAtLastReset.map(Self.percent) ?? "None yet", caption: "unused at last reset")
+                stat(row.averageUnusedAtReset.map(Self.percent) ?? "None yet", caption: "average unused at reset")
+            }
+
+            chart
+                .frame(height: 140)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.separator, lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private static let sampleFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
+
+    private static func percent(_ value: Double) -> String {
+        "\(Int(value.rounded()))%"
+    }
+
+    private func stat(_ value: String, caption: String) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 12)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(Array(row.segments.enumerated()), id: \.offset) { index, segment in
+                ForEach(segment, id: \.date) { point in
+                    // A series per run, so Charts never joins the end of one
+                    // run to the start of the next across a Tracking gap.
+                    LineMark(
+                        x: .value("Time", point.date),
+                        y: .value("Used", point.percent),
+                        series: .value("Run", index)
+                    )
+                    .foregroundStyle(brand)
+                    if segment.count == 1 {
+                        PointMark(x: .value("Time", point.date), y: .value("Used", point.percent))
+                            .foregroundStyle(brand)
+                    }
+                }
+            }
+            ForEach(row.resetMarkers, id: \.date) { marker in
+                RuleMark(x: .value("Reset", marker.date))
+                    .foregroundStyle(.secondary.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        Text("\(Int(marker.unusedPercent.rounded()))% unused")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+            }
+        }
+        .chartYScale(domain: 0...100)
+        .chartYAxis {
+            AxisMarks(values: [0, 50, 100]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let percent = value.as(Int.self) {
+                        Text("\(percent)%")
+                    }
+                }
+            }
+        }
+        .accessibilityLabel("\(row.name) used over \(range.title.lowercased()), \(row.resetMarkers.count) resets")
+    }
+}

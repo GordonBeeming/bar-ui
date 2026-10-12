@@ -104,7 +104,7 @@ struct ContentView: View {
         case .overview:
             OverviewView(overview: archive.overview, archiveFailure: archive.failure)
         case .barApp(let app):
-            BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote, skipped: archive.overview?.skippedRecords[app])
+            BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote, skipped: archive.overview?.skippedRecords[app], history: archive.history)
         case .archive:
             PlaceholderPageView(item: item)
         }

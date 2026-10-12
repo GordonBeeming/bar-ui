@@ -1,8 +1,8 @@
 import BarUICore
 import SwiftUI
 
-/// A Bar App's own page. The Telemetry content is still a placeholder; this
-/// page owns the Tracking banner and the way into the Tracking settings.
+/// A Bar App's own page: its Limit history, plus the Tracking banner and
+/// the way into the Tracking settings.
 struct BarAppPageView: View {
     let app: BarApp
     let status: BarAppStatus
@@ -10,6 +10,8 @@ struct BarAppPageView: View {
     let remote: BarAppRemote
     /// Nil when nothing from this Bar App was skipped.
     let skipped: SkippedRecordsNotice?
+    /// Nil when the Archive couldn't be opened; the Overview says why.
+    let history: LimitHistoryModel?
 
     @State private var editing: TrackingSettingsEditing?
     @State private var failure: String?
@@ -70,8 +72,17 @@ struct BarAppPageView: View {
                 systemImage: "app.dashed",
                 description: Text("Install \(app.displayName) to record Telemetry for Bar UI to show.")
             )
+        } else if let history {
+            ScrollView {
+                LimitHistorySection(app: app, model: history)
+                    .id(app)
+            }
         } else {
-            ContentUnavailableView(app.displayName, systemImage: "hammer")
+            ContentUnavailableView(
+                "The Archive couldn't be opened",
+                systemImage: "externaldrive.badge.exclamationmark",
+                description: Text("Limit history is read from the Archive. The Overview says why it couldn't be opened.")
+            )
         }
     }
 

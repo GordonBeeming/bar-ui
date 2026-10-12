@@ -4,6 +4,7 @@ import os
 public struct ImportSummary: Sendable, Equatable {
     public var filesRead = 0
     public var samplesRead = 0
+    public var resetsRead = 0
     public var droppedRecords = 0
     /// Files that couldn't be read this pass, with the reason. The next pass
     /// tries them again from where the Archive last got to.
@@ -12,7 +13,7 @@ public struct ImportSummary: Sendable, Equatable {
     public init() {}
 }
 
-/// Copies new Limit samples from a Bar App's metrics files into the Archive.
+/// Copies new Limit samples and reset events from a Bar App's metrics and logs files into the Archive.
 /// It only reads the Telemetry Folder: no locks, nothing written there.
 public struct TelemetryImporter: Sendable {
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "TelemetryImporter")
@@ -34,12 +35,13 @@ public struct TelemetryImporter: Sendable {
 
         // Oldest first, so a Limit's description ends on its newest name even
         // on a first import of many days.
-        for name in names.filter(app.isMetricsFileName).sorted() {
+        for name in names.filter({ app.isMetricsFileName($0) || app.isLogsFileName($0) }).sorted() {
             let file = folder.appendingPathComponent(name, isDirectory: false)
             do {
                 if let read = try await importFile(file, named: name, of: app) {
                     summary.filesRead += 1
                     summary.samplesRead += read.samples
+                    summary.resetsRead += read.resets
                     summary.droppedRecords += read.dropped
                 }
             } catch let error as ArchiveError {
@@ -58,7 +60,7 @@ public struct TelemetryImporter: Sendable {
         return summary
     }
 
-    private func importFile(_ file: URL, named name: String, of app: BarApp) async throws -> (samples: Int, dropped: Int)? {
+    private func importFile(_ file: URL, named name: String, of app: BarApp) async throws -> (samples: Int, resets: Int, dropped: Int)? {
         let previous = try await archive.progress(of: app, fileName: name)
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init) ?? 0
         var offset = previous?.byteOffset ?? 0
@@ -84,24 +86,45 @@ public struct TelemetryImporter: Sendable {
         try handle.seek(toOffset: UInt64(offset))
         let data = try handle.readToEnd() ?? Data()
 
-        let result = MetricsParser.parse(data, from: app)
-        guard result.consumedByteCount > 0 || previous == nil || offset != previous?.byteOffset else {
+        let samples: [LimitSample]
+        let tokenSamples: [TokenSample]
+        let resets: [LimitReset]
+        let consumed: Int
+        let dropped: Int
+        if app.isLogsFileName(name) {
+            let result = LogEventParser.parse(data, from: app)
+            samples = []
+            tokenSamples = []
+            resets = result.resets
+            consumed = result.consumedByteCount
+            dropped = result.droppedRecords
+        } else {
+            let result = MetricsParser.parse(data, from: app)
+            samples = result.samples
+            tokenSamples = result.tokenSamples
+            resets = []
+            consumed = result.consumedByteCount
+            dropped = result.droppedRecords
+        }
+        guard consumed > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
-        try await archive.record(result.samples, tokenSamples: result.tokenSamples, progress: ImportProgress(
+        try await archive.record(samples, tokenSamples: tokenSamples, resets: resets, progress: ImportProgress(
             app: app,
             fileName: name,
-            byteOffset: offset + Int64(result.consumedByteCount),
-            droppedRecords: droppedSoFar + result.droppedRecords
+            byteOffset: offset + Int64(consumed),
+            droppedRecords: droppedSoFar + dropped
         ))
-        return (result.samples.count, result.droppedRecords)
+        return (samples.count, resets.count, dropped)
     }
 }
 
 extension BarApp {
-    /// Logs share the folder but carry no Limit samples, so only the metrics
-    /// pattern is imported here.
     func isMetricsFileName(_ name: String) -> Bool {
         isTelemetryFileName(name) && name.hasPrefix("\(serviceName)-metrics-")
+    }
+
+    func isLogsFileName(_ name: String) -> Bool {
+        isTelemetryFileName(name) && name.hasPrefix("\(serviceName)-logs-")
     }
 }

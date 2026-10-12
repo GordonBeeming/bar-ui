@@ -118,12 +118,11 @@ public enum MetricsParser {
         return TokenSample(app: app, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
     }
 
-    private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
-        let attributes = point.attributes ?? []
+    /// The Limit attributes every `bar.limit.*` metric point and event carries.
+    /// Nil when one the spec requires is missing or broken.
+    static func limitDescriptor(from attributes: [KeyValue]) -> LimitDescriptor? {
         guard let id = attributes.string("limit.id"), !id.isEmpty,
-              let name = attributes.string("limit.name"), !name.isEmpty,
-              let time = point.timeUnixNano, time > 0,
-              let value = point.value, value.isFinite else {
+              let name = attributes.string("limit.name"), !name.isEmpty else {
             return nil
         }
 
@@ -136,6 +135,16 @@ public enum MetricsParser {
             }
             duration = exact
         }
+        return LimitDescriptor(id: id, name: name, windowDurationMinutes: duration, modelID: attributes.string("model.id"))
+    }
+
+    private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
+        let attributes = point.attributes ?? []
+        guard let limit = limitDescriptor(from: attributes),
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value.isFinite else {
+            return nil
+        }
 
         switch metric {
         case .utilization:
@@ -144,12 +153,6 @@ public enum MetricsParser {
             guard value > 0 else { return nil }
         }
 
-        let limit = LimitDescriptor(
-            id: id,
-            name: name,
-            windowDurationMinutes: duration,
-            modelID: attributes.string("model.id")
-        )
         return LimitSample(app: app, limit: limit, metric: metric, timeUnixNano: time, value: value)
     }
 }
@@ -229,29 +232,31 @@ private struct NumberDataPoint: Decodable {
     }
 }
 
-private struct KeyValue: Decodable {
+struct KeyValue: Decodable {
     let key: String
     let value: AnyValue?
 }
 
-private struct AnyValue: Decodable {
+struct AnyValue: Decodable {
     let stringValue: String?
     let intValue: Int64?
+    let doubleValue: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case stringValue, intValue
+        case stringValue, intValue, doubleValue
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         stringValue = try? container.decodeIfPresent(String.self, forKey: .stringValue)
         intValue = (try? container.decodeIfPresent(OTLPInt.self, forKey: .intValue))?.value
+        doubleValue = try? container.decodeIfPresent(Double.self, forKey: .doubleValue)
     }
 }
 
 /// OTLP/JSON writes 64-bit integers as strings, and receivers are expected to
 /// take a plain JSON number too.
-private struct OTLPInt: Decodable {
+struct OTLPInt: Decodable {
     let value: Int64
 
     init(from decoder: any Decoder) throws {
@@ -267,8 +272,12 @@ private struct OTLPInt: Decodable {
     }
 }
 
-private extension [KeyValue] {
+extension [KeyValue] {
     func string(_ key: String) -> String? {
         first { $0.key == key }?.value?.stringValue
+    }
+
+    func attribute(_ key: String) -> AnyValue? {
+        first { $0.key == key }?.value
     }
 }

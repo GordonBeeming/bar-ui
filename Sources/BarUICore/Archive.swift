@@ -39,6 +39,30 @@ public struct CurrentLimit: Sendable, Hashable {
 public struct ArchivedSample: Sendable, Hashable {
     public let timeUnixNano: Int64
     public let value: Double
+
+    public init(timeUnixNano: Int64, value: Double) {
+        self.timeUnixNano = timeUnixNano
+        self.value = value
+    }
+}
+
+/// One Limit's utilisation and resets over a stretch of the Archive.
+public struct LimitHistory: Sendable, Hashable {
+    public let app: BarApp
+    public let limit: LimitDescriptor
+    public let utilization: [ArchivedSample]
+    /// The newest utilisation sample ever archived, even when it falls before
+    /// the range the rest was read for.
+    public let latest: ArchivedSample?
+    public let resets: [LimitReset]
+
+    public init(app: BarApp, limit: LimitDescriptor, utilization: [ArchivedSample], latest: ArchivedSample?, resets: [LimitReset]) {
+        self.app = app
+        self.limit = limit
+        self.utilization = utilization
+        self.latest = latest
+        self.resets = resets
+    }
 }
 
 public struct ArchiveError: Error, LocalizedError, Sendable {
@@ -81,7 +105,7 @@ public actor Archive {
     /// Stores the samples and the file's new read position together, so a
     /// crash part way can't move the position past samples that were lost.
     /// Samples already in the Archive are left as they are.
-    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], progress: ImportProgress) throws {
+    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], resets: [LimitReset] = [], progress: ImportProgress) throws {
         try execute("BEGIN IMMEDIATE", operation: "start an import")
         do {
             let describe = try prepare("""
@@ -98,15 +122,32 @@ public actor Archive {
                 INSERT OR IGNORE INTO limit_samples (app, limit_id, metric, time_unix_nano, value)
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 """)
-            for sample in samples {
+            let insertReset = try prepare("""
+                INSERT OR IGNORE INTO limit_resets (app, limit_id, time_unix_nano, utilization_last, next_resets_at)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                """)
+            func describeLimit(of app: BarApp, _ limit: LimitDescriptor, at time: Int64) throws {
                 try describe.run(
-                    .text(sample.app.rawValue),
-                    .text(sample.limit.id),
-                    .text(sample.limit.name),
-                    sample.limit.windowDurationMinutes.map { .integer(Int64($0)) } ?? .null,
-                    sample.limit.modelID.map { .text($0) } ?? .null,
-                    .integer(sample.timeUnixNano)
+                    .text(app.rawValue),
+                    .text(limit.id),
+                    .text(limit.name),
+                    limit.windowDurationMinutes.map { .integer(Int64($0)) } ?? .null,
+                    limit.modelID.map { .text($0) } ?? .null,
+                    .integer(time)
                 )
+            }
+            for reset in resets {
+                try describeLimit(of: reset.app, reset.limit, at: reset.timeUnixNano)
+                try insertReset.run(
+                    .text(reset.app.rawValue),
+                    .text(reset.limit.id),
+                    .integer(reset.timeUnixNano),
+                    .real(reset.utilizationLast),
+                    reset.nextResetsAt.map { .real($0.timeIntervalSince1970) } ?? .null
+                )
+            }
+            for sample in samples {
+                try describeLimit(of: sample.app, sample.limit, at: sample.timeUnixNano)
                 try insert.run(
                     .text(sample.app.rawValue),
                     .text(sample.limit.id),
@@ -224,12 +265,16 @@ public actor Archive {
     }
 
     public func samples(of app: BarApp, limitID: String, metric: LimitMetric) throws -> [ArchivedSample] {
+        try samples(of: app, limitID: limitID, metric: metric, since: Int64.min)
+    }
+
+    private func samples(of app: BarApp, limitID: String, metric: LimitMetric, since floor: Int64) throws -> [ArchivedSample] {
         let statement = try prepare("""
             SELECT time_unix_nano, value FROM limit_samples
-            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3
+            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano >= ?4
             ORDER BY time_unix_nano
             """)
-        try statement.bind(.text(app.rawValue), .text(limitID), .text(metric.rawValue))
+        try statement.bind(.text(app.rawValue), .text(limitID), .text(metric.rawValue), .integer(floor))
         var samples: [ArchivedSample] = []
         while try statement.step() {
             samples.append(ArchivedSample(timeUnixNano: statement.int64(at: 0), value: statement.double(at: 1)))
@@ -267,6 +312,66 @@ public actor Archive {
         return samples
     }
 
+    /// Every Limit the Archive holds for the Bar App, each with its
+    /// utilisation samples and resets from `since` on (all of them when nil).
+    /// A Limit with nothing in the range still comes back, so it can say so.
+    public func limitHistories(of app: BarApp, since: Date?) throws -> [LimitHistory] {
+        let floor = since.map { Int64(($0.timeIntervalSince1970 * 1_000_000_000).rounded(.down)) } ?? Int64.min
+        let limits = try prepare("""
+            SELECT limit_id, name, window_minutes, model_id FROM limits WHERE app = ?1 ORDER BY limit_id
+            """)
+        try limits.bind(.text(app.rawValue))
+        var descriptors: [LimitDescriptor] = []
+        while try limits.step() {
+            guard let id = limits.text(at: 0), let name = limits.text(at: 1) else {
+                continue
+            }
+            descriptors.append(LimitDescriptor(
+                id: id,
+                name: name,
+                windowDurationMinutes: limits.optionalInt64(at: 2).map { Int($0) },
+                modelID: limits.text(at: 3)
+            ))
+        }
+
+        let resets = try prepare("""
+            SELECT time_unix_nano, utilization_last, next_resets_at FROM limit_resets
+            WHERE app = ?1 AND limit_id = ?2 AND time_unix_nano >= ?3
+            ORDER BY time_unix_nano
+            """)
+        let latest = try prepare("""
+            SELECT time_unix_nano, value FROM limit_samples
+            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3
+            ORDER BY time_unix_nano DESC LIMIT 1
+            """)
+        var histories: [LimitHistory] = []
+        for descriptor in descriptors {
+            try resets.bind(.text(app.rawValue), .text(descriptor.id), .integer(floor))
+            var events: [LimitReset] = []
+            while try resets.step() {
+                events.append(LimitReset(
+                    app: app,
+                    limit: descriptor,
+                    timeUnixNano: resets.int64(at: 0),
+                    utilizationLast: resets.double(at: 1),
+                    nextResetsAt: resets.optionalDouble(at: 2).map { Date(timeIntervalSince1970: $0) }
+                ))
+            }
+            try latest.bind(.text(app.rawValue), .text(descriptor.id), .text(LimitMetric.utilization.rawValue))
+            let latestSample = try latest.step()
+                ? ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
+                : nil
+            histories.append(LimitHistory(
+                app: app,
+                limit: descriptor,
+                utilization: try samples(of: app, limitID: descriptor.id, metric: .utilization, since: floor),
+                latest: latestSample,
+                resets: events
+            ))
+        }
+        return histories
+    }
+
     // MARK: - SQLite
 
     private static func migrate(_ database: OpaquePointer) throws {
@@ -297,6 +402,14 @@ public actor Archive {
                 start_time_unix_nano INTEGER NOT NULL,
                 count INTEGER NOT NULL,
                 PRIMARY KEY (app, model, token_type, time_unix_nano)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS limit_resets (
+                app TEXT NOT NULL,
+                limit_id TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                utilization_last REAL NOT NULL,
+                next_resets_at REAL,
+                PRIMARY KEY (app, limit_id, time_unix_nano)
             ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS imported_files (
                 app TEXT NOT NULL,
