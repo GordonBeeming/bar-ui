@@ -8,6 +8,7 @@ import Observation
 @Observable
 public final class LimitsOverview {
     public private(set) var limits: [CurrentLimit] = []
+    public private(set) var tokenSamples: [TokenSample] = []
     public private(set) var states: [BarApp: TrackingState] = [:]
     /// Why the last refresh couldn't read everything, for the Overview to show.
     public private(set) var problem: String?
@@ -27,6 +28,10 @@ public final class LimitsOverview {
 
     public func cards(now: Date) -> [LimitCard] {
         LimitCard.cards(for: limits, states: states, now: now)
+    }
+
+    public func tokenUsage(range: TokenRange, now: Date, calendar: Calendar = .current) -> TokenUsage {
+        TokenUsage(samples: tokenSamples, range: range, now: now, calendar: calendar)
     }
 
     public func refresh(statuses: [BarApp: BarAppStatus]) async {
@@ -58,6 +63,11 @@ public final class LimitsOverview {
 
         do {
             limits = try await archive.currentLimits()
+        } catch {
+            problems.append(error.localizedDescription)
+        }
+        do {
+            tokenSamples = try await archive.tokenSamples()
         } catch {
             problems.append(error.localizedDescription)
         }

@@ -88,7 +88,7 @@ public struct TelemetryImporter: Sendable {
         guard result.consumedByteCount > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
-        try await archive.record(result.samples, progress: ImportProgress(
+        try await archive.record(result.samples, tokenSamples: result.tokenSamples, progress: ImportProgress(
             app: app,
             fileName: name,
             byteOffset: offset + Int64(result.consumedByteCount),

@@ -2,6 +2,7 @@ import Foundation
 
 public struct MetricsParseResult: Sendable, Equatable {
     public let samples: [LimitSample]
+    public let tokenSamples: [TokenSample]
     /// Lines, resources and `bar.limit.*` data points that broke the Telemetry
     /// Spec and were dropped. Metrics the spec doesn't define aren't counted.
     public let droppedRecords: Int
@@ -14,15 +15,17 @@ public struct MetricsParseResult: Sendable, Equatable {
 /// following Telemetry Spec v1. Anything that doesn't conform is dropped and
 /// counted, never guessed at.
 public enum MetricsParser {
+    private static let tokensMetricName = "bar.tokens"
     private static let newline = UInt8(ascii: "\n")
 
     public static func parse(_ data: Data, from app: BarApp) -> MetricsParseResult {
         guard let lastNewline = data.lastIndex(of: newline) else {
-            return MetricsParseResult(samples: [], droppedRecords: 0, consumedByteCount: 0)
+            return MetricsParseResult(samples: [], tokenSamples: [], droppedRecords: 0, consumedByteCount: 0)
         }
         let complete = data[data.startIndex..<lastNewline]
         let decoder = JSONDecoder()
         var samples: [LimitSample] = []
+        var tokenSamples: [TokenSample] = []
         var dropped = 0
 
         for line in complete.split(separator: newline, omittingEmptySubsequences: false) {
@@ -31,12 +34,13 @@ public enum MetricsParser {
                 continue
             }
             for resourceMetrics in request.resourceMetrics ?? [] {
-                read(resourceMetrics, from: app, into: &samples, dropped: &dropped)
+                read(resourceMetrics, from: app, into: &samples, tokens: &tokenSamples, dropped: &dropped)
             }
         }
 
         return MetricsParseResult(
             samples: samples,
+            tokenSamples: tokenSamples,
             droppedRecords: dropped,
             consumedByteCount: lastNewline - data.startIndex + 1
         )
@@ -46,6 +50,7 @@ public enum MetricsParser {
         _ resourceMetrics: ResourceMetrics,
         from app: BarApp,
         into samples: inout [LimitSample],
+        tokens: inout [TokenSample],
         dropped: inout Int
     ) {
         let resource = resourceMetrics.resource?.attributes ?? []
@@ -58,6 +63,10 @@ public enum MetricsParser {
         }
         for scope in resourceMetrics.scopeMetrics ?? [] {
             for metric in scope.metrics ?? [] {
+                if metric.name == Self.tokensMetricName {
+                    readTokens(metric, from: app, into: &tokens, dropped: &dropped)
+                    continue
+                }
                 guard let name = metric.name, let limitMetric = LimitMetric(rawValue: name) else {
                     continue
                 }
@@ -74,6 +83,39 @@ public enum MetricsParser {
                 }
             }
         }
+    }
+
+    private static func readTokens(
+        _ metric: Metric,
+        from app: BarApp,
+        into tokens: inout [TokenSample],
+        dropped: inout Int
+    ) {
+        // Reading a cumulative count as anything else would turn totals into
+        // increments, so a Sum of another shape is dropped whole.
+        guard let sum = metric.sum, sum.aggregationTemporality == 2, sum.isMonotonic == true else {
+            dropped += 1
+            return
+        }
+        for point in sum.dataPoints ?? [] {
+            if let sample = tokenSample(from: point, app: app) {
+                tokens.append(sample)
+            } else {
+                dropped += 1
+            }
+        }
+    }
+
+    private static func tokenSample(from point: NumberDataPoint, app: BarApp) -> TokenSample? {
+        let attributes = point.attributes ?? []
+        guard let model = attributes.string("model"), !model.isEmpty,
+              let typeName = attributes.string("token.type"), let tokenType = TokenType(rawValue: typeName),
+              let start = point.startTimeUnixNano, start > 0,
+              let time = point.timeUnixNano, time > 0,
+              let value = point.value, value >= 0, let count = Int64(exactly: value) else {
+            return nil
+        }
+        return TokenSample(app: app, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
     }
 
     private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
@@ -138,6 +180,24 @@ private struct ScopeMetrics: Decodable {
 private struct Metric: Decodable {
     let name: String?
     let gauge: Gauge?
+    let sum: Sum?
+}
+
+private struct Sum: Decodable {
+    let aggregationTemporality: Int?
+    let isMonotonic: Bool?
+    let dataPoints: [NumberDataPoint]?
+
+    private enum CodingKeys: String, CodingKey {
+        case aggregationTemporality, isMonotonic, dataPoints
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        aggregationTemporality = try? container.decodeIfPresent(Int.self, forKey: .aggregationTemporality)
+        isMonotonic = try? container.decodeIfPresent(Bool.self, forKey: .isMonotonic)
+        dataPoints = try? container.decodeIfPresent([NumberDataPoint].self, forKey: .dataPoints)
+    }
 }
 
 private struct Gauge: Decodable {
@@ -146,16 +206,18 @@ private struct Gauge: Decodable {
 
 private struct NumberDataPoint: Decodable {
     let attributes: [KeyValue]?
+    let startTimeUnixNano: Int64?
     let timeUnixNano: Int64?
     let value: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case attributes, timeUnixNano, asDouble, asInt
+        case attributes, startTimeUnixNano, timeUnixNano, asDouble, asInt
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         attributes = try? container.decodeIfPresent([KeyValue].self, forKey: .attributes)
+        startTimeUnixNano = (try? container.decodeIfPresent(OTLPInt.self, forKey: .startTimeUnixNano))?.value
         timeUnixNano = (try? container.decodeIfPresent(OTLPInt.self, forKey: .timeUnixNano))?.value
         if let double = try? container.decodeIfPresent(Double.self, forKey: .asDouble) {
             value = double

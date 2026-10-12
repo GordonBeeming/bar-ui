@@ -12,7 +12,7 @@ struct OverviewView: View {
                 // The countdowns move on their own; samples only arrive every
                 // few minutes, so a half-minute tick keeps them honest.
                 TimelineView(.periodic(from: .now, by: 30)) { context in
-                    content(cards: overview.cards(now: context.date), problem: overview.problem)
+                    content(overview: overview, cards: overview.cards(now: context.date), problem: overview.problem, now: context.date)
                 }
             } else {
                 ContentUnavailableView(
@@ -26,7 +26,7 @@ struct OverviewView: View {
     }
 
     @ViewBuilder
-    private func content(cards: [LimitCard], problem: String?) -> some View {
+    private func content(overview: LimitsOverview, cards: [LimitCard], problem: String?, now: Date) -> some View {
         if cards.isEmpty {
             ContentUnavailableView {
                 Label("No Telemetry yet", systemImage: "chart.bar.xaxis")
@@ -44,6 +44,7 @@ struct OverviewView: View {
                         ProblemLabel(problem: problem)
                     }
                     LimitsStrip(cards: cards)
+                    TokensSection(overview: overview, now: now)
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 16)

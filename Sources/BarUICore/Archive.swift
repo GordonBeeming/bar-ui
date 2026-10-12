@@ -81,7 +81,7 @@ public actor Archive {
     /// Stores the samples and the file's new read position together, so a
     /// crash part way can't move the position past samples that were lost.
     /// Samples already in the Archive are left as they are.
-    public func record(_ samples: [LimitSample], progress: ImportProgress) throws {
+    public func record(_ samples: [LimitSample], tokenSamples: [TokenSample] = [], progress: ImportProgress) throws {
         try execute("BEGIN IMMEDIATE", operation: "start an import")
         do {
             let describe = try prepare("""
@@ -113,6 +113,20 @@ public actor Archive {
                     .text(sample.metric.rawValue),
                     .integer(sample.timeUnixNano),
                     .real(sample.value)
+                )
+            }
+            let insertTokens = try prepare("""
+                INSERT OR IGNORE INTO token_samples (app, model, token_type, time_unix_nano, start_time_unix_nano, count)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                """)
+            for sample in tokenSamples {
+                try insertTokens.run(
+                    .text(sample.app.rawValue),
+                    .text(sample.model),
+                    .text(sample.tokenType.rawValue),
+                    .integer(sample.timeUnixNano),
+                    .integer(sample.startTimeUnixNano),
+                    .integer(sample.count)
                 )
             }
             try prepare("""
@@ -223,6 +237,36 @@ public actor Archive {
         return samples
     }
 
+    /// Every cumulative token point ever imported, oldest first. Turning them
+    /// into usage per period is `TokenUsage`'s job, because that needs the
+    /// whole series to tell a counter restart from a drop.
+    public func tokenSamples() throws -> [TokenSample] {
+        let statement = try prepare("""
+            SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count
+            FROM token_samples
+            ORDER BY time_unix_nano, app, model, token_type
+            """)
+        var samples: [TokenSample] = []
+        while try statement.step() {
+            // Rows from a Bar App or Token Type this build doesn't know stay
+            // in the Archive untouched but can't be shown.
+            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+                  let model = statement.text(at: 1),
+                  let typeName = statement.text(at: 2), let tokenType = TokenType(rawValue: typeName) else {
+                continue
+            }
+            samples.append(TokenSample(
+                app: app,
+                model: model,
+                tokenType: tokenType,
+                startTimeUnixNano: statement.int64(at: 3),
+                timeUnixNano: statement.int64(at: 4),
+                count: statement.int64(at: 5)
+            ))
+        }
+        return samples
+    }
+
     // MARK: - SQLite
 
     private static func migrate(_ database: OpaquePointer) throws {
@@ -244,6 +288,15 @@ public actor Archive {
                 time_unix_nano INTEGER NOT NULL,
                 value REAL NOT NULL,
                 PRIMARY KEY (app, limit_id, metric, time_unix_nano)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS token_samples (
+                app TEXT NOT NULL,
+                model TEXT NOT NULL,
+                token_type TEXT NOT NULL,
+                time_unix_nano INTEGER NOT NULL,
+                start_time_unix_nano INTEGER NOT NULL,
+                count INTEGER NOT NULL,
+                PRIMARY KEY (app, model, token_type, time_unix_nano)
             ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS imported_files (
                 app TEXT NOT NULL,
