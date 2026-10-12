@@ -120,6 +120,7 @@ private struct PreviewContent: View {
                         .help(cost(for: usage)?.rateNote ?? "Loading prices")
                         .accessibilityLabel("API Cost \(cost(for: usage)?.value ?? "loading")")
                 }
+                TokenKindSplit(totals: usage.totalByKind)
                 Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
                     .font(.caption)
                     .monospacedDigit()

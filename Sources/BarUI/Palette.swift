@@ -13,6 +13,19 @@ extension BarApp {
     }
 }
 
+extension TokenKind {
+    /// Cache reads are most of every total, so they get the quietest colour;
+    /// new input and output differ in lightness as well as hue so they stay
+    /// apart when stacked.
+    var color: Color {
+        switch self {
+        case .cacheRead: Color(light: 0xA3A3AB, dark: 0x6E6E78)
+        case .newInput: Color(light: 0x2F6FEB, dark: 0x6A9BFF)
+        case .output: Color(light: 0xC77700, dark: 0xF2B544)
+        }
+    }
+}
+
 extension LimitCard.Severity {
     /// The meter fill. A Limit that's fine keeps its Bar App's colour, so
     /// amber and red only appear when they mean something.
