@@ -10,4 +10,13 @@ public enum BarApp: String, CaseIterable, Sendable, Hashable {
         case .codexBar: "CodexBar"
         }
     }
+
+    /// Detection and the defaults domain both key on this, never on an app's
+    /// name or path, so an unrelated app called "ClaudeBar" is never picked up.
+    public var bundleIdentifier: String {
+        switch self {
+        case .claudeBar: "com.gordonbeeming.ClaudeBar"
+        case .codexBar: "com.gordonbeeming.CodexBar"
+        }
+    }
 }

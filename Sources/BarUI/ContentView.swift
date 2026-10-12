@@ -2,7 +2,17 @@ import BarUICore
 import SwiftUI
 
 struct ContentView: View {
+    /// Bar Apps don't announce settings changes to other processes, so the
+    /// sidebar polls. Reads are a few preference lookups and, only for apps
+    /// with Tracking off, one folder listing, so a short interval is cheap.
+    private static let refreshInterval: Duration = .seconds(2)
+
     @State private var selection: SidebarItem? = .initial
+    @State private var monitor = BarAppMonitor(detector: BarAppDetector(
+        locator: WorkspaceApplicationLocator(),
+        preferences: SystemPreferences(),
+        homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+    ))
 
     var body: some View {
         NavigationSplitView {
@@ -22,13 +32,41 @@ struct ContentView: View {
         } detail: {
             detail(for: selection ?? .initial)
         }
+        .task {
+            await pollBarApps()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Coming back from a Bar App's settings is the moment a change is
+            // most likely, so don't make the person wait for the next poll.
+            monitor.refresh()
+        }
+    }
+
+    private func pollBarApps() async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: Self.refreshInterval)
+            } catch {
+                // Sleep only throws on cancellation, which means the window
+                // went away and polling should stop.
+                return
+            }
+            monitor.refresh()
+        }
     }
 
     private func rows(for section: SidebarSection) -> some View {
         ForEach(section.items) { item in
-            SidebarRow(item: item)
+            SidebarRow(item: item, barAppState: barAppState(for: item))
                 .tag(item)
         }
+    }
+
+    private func barAppState(for item: SidebarItem) -> TrackingState? {
+        guard case .barApp(let app) = item else {
+            return nil
+        }
+        return monitor.status(of: app).state
     }
 
     @ViewBuilder

@@ -4,6 +4,8 @@ import SwiftUI
 
 struct SidebarRow: View {
     let item: SidebarItem
+    /// Only set for Bar App rows.
+    var barAppState: TrackingState?
 
     var body: some View {
         switch item {
@@ -11,13 +13,39 @@ struct SidebarRow: View {
             Label(item.title, systemImage: "square.grid.2x2")
         case .barApp(let app):
             Label {
-                Text(item.title)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title)
+                    if let barAppState {
+                        TrackingStateLabel(state: barAppState)
+                    }
+                }
             } icon: {
                 BarAppTile(app: app)
             }
+            .accessibilityElement(children: .combine)
         case .archive(let page):
             Label(item.title, systemImage: page.systemImage)
         }
+    }
+}
+
+private struct TrackingStateLabel: View {
+    let state: TrackingState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if state == .tracking {
+                // Colour alone doesn't carry meaning here; the text does, the
+                // dot just makes the one active state easy to spot.
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+            }
+            Text(state.title)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 
