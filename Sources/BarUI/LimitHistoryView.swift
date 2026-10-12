@@ -200,7 +200,7 @@ private struct LimitHistoryRowView: View {
             }
         }
         .chartXSelection(value: $pointerDate)
-        .edgeSafeTimeAxis(unit: range.bucketComponent, desiredCount: 6)
+        .edgeSafeTimeAxis(unit: range.bucketComponent, span: dataExtent, desiredCount: 6)
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(values: [0, 50, 100]) { value in

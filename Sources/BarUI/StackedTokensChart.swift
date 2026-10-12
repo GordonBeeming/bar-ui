@@ -43,7 +43,7 @@ struct StackedTokensChart: View {
             }
         }
         .chartXSelection(value: $pointerDate)
-        .edgeSafeTimeAxis(unit: unit, desiredCount: compact ? 4 : 6)
+        .edgeSafeTimeAxis(unit: unit, span: usage.timeDomain(component: unit), desiredCount: compact ? 4 : 6)
         .chartForegroundStyleScale(
             domain: BarApp.allCases.map(\.displayName),
             range: BarApp.allCases.map(\.brandColor)
