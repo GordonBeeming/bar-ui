@@ -1,0 +1,121 @@
+import Foundation
+
+/// Where a feed's document comes from. A protocol so nothing under test ever
+/// reaches the network.
+public protocol DocumentSource: Sendable {
+    func data(from url: URL) async throws -> Data
+}
+
+public struct URLSessionDocumentSource: DocumentSource {
+    public struct BadResponse: Error, LocalizedError {
+        public let statusCode: Int
+        public var errorDescription: String? { "The server answered \(statusCode)." }
+    }
+
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func data(from url: URL) async throws -> Data {
+        let (data, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw BadResponse(statusCode: http.statusCode)
+        }
+        return data
+    }
+}
+
+public struct FeedSnapshot<Value: Sendable>: Sendable {
+    public enum Origin: Sendable, Equatable {
+        /// Downloaded just now.
+        case fetched
+        /// The copy kept from an earlier download.
+        case cached
+        /// The copy shipped inside the app.
+        case bundled
+    }
+
+    public let value: Value
+    public let origin: Origin
+    /// When the document was last downloaded. Nil for the bundled copy.
+    public let updatedAt: Date?
+    /// Why the newest copy couldn't be had, when it couldn't. The value is
+    /// still usable; this is for the UI to say it may be out of date.
+    public let refreshFailure: String?
+}
+
+/// A document that is downloaded at most once a `maxAge`, kept on disk, and
+/// backed by a copy shipped in the app, so the figures built on it work
+/// offline. A download only replaces the cache once it has parsed, so a
+/// captive portal's HTML page can't poison it.
+public struct RefreshingFeed<Value: Sendable>: Sendable {
+    private let url: URL
+    private let cacheFile: URL?
+    private let bundled: Data
+    private let maxAge: TimeInterval
+    private let source: any DocumentSource
+    private let parse: @Sendable (Data) throws -> Value
+
+    public init(
+        url: URL,
+        cacheFile: URL?,
+        bundled: Data,
+        maxAge: TimeInterval = 24 * 3_600,
+        source: any DocumentSource,
+        parse: @escaping @Sendable (Data) throws -> Value
+    ) {
+        self.url = url
+        self.cacheFile = cacheFile
+        self.bundled = bundled
+        self.maxAge = maxAge
+        self.source = source
+        self.parse = parse
+    }
+
+    /// Throws only when nothing usable exists, not even the bundled copy.
+    public func load(now: Date) async throws -> FeedSnapshot<Value> {
+        let cached = readCache()
+        if let cached, now.timeIntervalSince(cached.updatedAt) < maxAge {
+            return FeedSnapshot(value: cached.value, origin: .cached, updatedAt: cached.updatedAt, refreshFailure: nil)
+        }
+
+        var failure: String
+        do {
+            let data = try await source.data(from: url)
+            let value = try parse(data)
+            return FeedSnapshot(value: value, origin: .fetched, updatedAt: now, refreshFailure: writeCache(data))
+        } catch {
+            failure = error.localizedDescription
+        }
+
+        if let cached {
+            return FeedSnapshot(value: cached.value, origin: .cached, updatedAt: cached.updatedAt, refreshFailure: failure)
+        }
+        return FeedSnapshot(value: try parse(bundled), origin: .bundled, updatedAt: nil, refreshFailure: failure)
+    }
+
+    private func readCache() -> (value: Value, updatedAt: Date)? {
+        guard let cacheFile,
+              let data = try? Data(contentsOf: cacheFile),
+              let value = try? parse(data),
+              let updatedAt = (try? FileManager.default.attributesOfItem(atPath: cacheFile.path))?[.modificationDate] as? Date else {
+            return nil
+        }
+        return (value, updatedAt)
+    }
+
+    /// Returns why the cache couldn't be kept, or nil.
+    private func writeCache(_ data: Data) -> String? {
+        guard let cacheFile else {
+            return nil
+        }
+        do {
+            try data.write(to: cacheFile, options: .atomic)
+            return nil
+        } catch {
+            return "Couldn't keep a copy for offline use: \(error.localizedDescription)"
+        }
+    }
+}

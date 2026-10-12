@@ -54,6 +54,9 @@ public struct TokenUsage: Sendable, Equatable {
     public let output: Int64
     public let reasoning: Int64
     public let cacheRead: Int64
+    /// What each model used, by Token Type, across every Bar App. Reasoning is
+    /// left out because output already contains it.
+    public let tokensByModel: [String: [TokenType: Int64]]
 
     /// Nil when there was no output to take a share of.
     public var reasoningShareOfOutput: Double? {
@@ -79,6 +82,7 @@ public struct TokenUsage: Sendable, Equatable {
         var reasoning: Int64 = 0
         var cacheRead: Int64 = 0
         var byBucket: [Date: [BarApp: Int64]] = [:]
+        var tokensByModel: [String: [TokenType: Int64]] = [:]
         for increase in increases {
             switch increase.tokenType {
             case .reasoning:
@@ -93,6 +97,7 @@ public struct TokenUsage: Sendable, Equatable {
                 input += increase.tokens
             }
             totalByApp[increase.app, default: 0] += increase.tokens
+            tokensByModel[increase.model, default: [:]][increase.tokenType, default: 0] += increase.tokens
             let start = calendar.dateInterval(of: range.bucketComponent, for: Date(unixNano: increase.timeUnixNano))?.start
                 ?? Date(unixNano: increase.timeUnixNano)
             byBucket[start, default: [:]][increase.app, default: 0] += increase.tokens
@@ -104,6 +109,7 @@ public struct TokenUsage: Sendable, Equatable {
         self.output = output
         self.reasoning = reasoning
         self.cacheRead = cacheRead
+        self.tokensByModel = tokensByModel
         self.buckets = Self.filledBuckets(byBucket, windowStart: windowStart, now: now, component: range.bucketComponent, calendar: calendar)
     }
 
@@ -111,6 +117,7 @@ public struct TokenUsage: Sendable, Equatable {
 
     private struct Increase {
         let app: BarApp
+        let model: String
         let tokenType: TokenType
         let timeUnixNano: Int64
         let tokens: Int64
@@ -145,7 +152,7 @@ public struct TokenUsage: Sendable, Equatable {
                 }
                 previous = point
                 if tokens > 0 {
-                    increases.append(Increase(app: key.app, tokenType: key.tokenType, timeUnixNano: point.timeUnixNano, tokens: tokens))
+                    increases.append(Increase(app: key.app, model: key.model, tokenType: key.tokenType, timeUnixNano: point.timeUnixNano, tokens: tokens))
                 }
             }
         }
