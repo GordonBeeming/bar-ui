@@ -24,7 +24,10 @@ struct LimitPaceTextTests {
         (30, 0.30, "0% headroom"),
         (30.2, 0.30, "<1% over"),
         (29.8, 0.30, "<1% headroom"),
-        (30, nil, nil)
+        (30, nil, nil),
+        (0, 0.02, nil),
+        (4.9, 0.30, nil),
+        (5, 0.30, "25% headroom")
     ]
 
     @Test("How far usage is from an even spread over the Window, as a number either way", arguments: paces)
@@ -39,7 +42,8 @@ struct LimitPaceTextTests {
         (30.2, 0.30, 1),
         (29.8, 0.30, -1),
         (30, 0.30, 0),
-        (30, nil, nil)
+        (30, nil, nil),
+        (4.9, 0.01, nil)
     ]
 
     @Test("The side comes from the unrounded gap, so a fraction past the tick still counts as over", arguments: sides)
