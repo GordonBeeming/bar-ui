@@ -14,6 +14,12 @@ struct TokenKindTests {
         return calendar
     }
 
+    @Test("Kinds read as cache reads, input and output, with short forms for the headline")
+    func labels() {
+        #expect(TokenKind.allCases.map(\.label) == ["Cache reads", "Input", "Output"])
+        #expect(TokenKind.allCases.map(\.shortLabel) == ["cached", "in", "out"])
+    }
+
     /// A counter that starts at zero an hour ago and reads `count` now.
     private static func sample(_ type: TokenType, _ count: Int64, app: BarApp = .claudeBar) -> [TokenSample] {
         let start = Int64((now.timeIntervalSince1970 - 3_600) * 1_000_000_000)

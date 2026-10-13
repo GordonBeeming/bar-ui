@@ -1,7 +1,7 @@
 import BarUICore
 import SwiftUI
 
-/// "● 1.37B cached  ● 28M new in  ● 2.8M out", in the same colours as the
+/// "● 1.37B cached  ● 28M in  ● 2.8M out", in the same colours as the
 /// token charts, so a big total shows how much of it was fresh work.
 struct TokenKindSplit: View {
     let totals: [TokenKind: Int64]
