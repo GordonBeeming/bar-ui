@@ -107,6 +107,24 @@ struct LimitHistoryRowTests {
         #expect(row.bridges.isEmpty)
     }
 
+    @Test("Slower sampling while the Mac sleeps, 15 to 21 minutes apart, stays one line")
+    func sleepingMacStaysOneLine() {
+        // Five-minute samples, then the overnight pattern from real data, then
+        // five-minute samples again.
+        var points: [(Int, Double)] = (0..<12).map { ($0 * 300, 10) }
+        var time = 11 * 300
+        for minutes in [20, 18, 17, 18, 21, 17, 15, 17, 16] {
+            time += minutes * 60
+            points.append((time, 10))
+        }
+        points += (1...12).map { (time + $0 * 300, 10) }
+
+        let row = LimitHistoryRow(history: Self.history(utilization: points, resets: []))
+
+        #expect(row.segments.count == 1)
+        #expect(row.bridges.isEmpty)
+    }
+
     @Test("Samples at the usual pace stay one line")
     func noGap() {
         let history = Self.history(utilization: [(0, 10), (300, 12), (600, 14), (1_000, 16)], resets: [])

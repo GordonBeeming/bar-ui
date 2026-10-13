@@ -14,12 +14,13 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
         public let unusedPercent: Double
     }
 
-    /// Samples closer together than this are never treated as a gap, so a Bar
-    /// App sampling every minute doesn't show a hole for one missed sample.
-    private static let smallestGap: TimeInterval = 10 * 60
+    /// Samples closer together than this are never treated as a gap. A Bar
+    /// App on a sleeping Mac still samples, just every 15 to 20 minutes
+    /// instead of every 5, and that is slower data, not a break.
+    private static let smallestGap: TimeInterval = 60 * 60
     /// How many usual sampling intervals of silence make a gap. Nothing says
     /// how often a Bar App samples, so the pace comes from the data.
-    private static let gapIntervals = 3.0
+    private static let gapIntervals = 4.0
 
     public let app: BarApp
     public let limitID: String
