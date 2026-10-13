@@ -89,6 +89,34 @@ struct BarAppDetectorTests {
         #expect(status.state == .offWithHistory)
     }
 
+    struct MoveFlagCase: Sendable, CustomTestStringConvertible {
+        let flag: Bool?
+        let readsLegacy: Bool
+        var testDescription: String { "telemetryFolderMigrated = \(flag.map(String.init) ?? "absent")" }
+    }
+
+    static let moveFlagCases: [MoveFlagCase] = [
+        MoveFlagCase(flag: true, readsLegacy: false),
+        MoveFlagCase(flag: false, readsLegacy: true),
+        MoveFlagCase(flag: nil, readsLegacy: true)
+    ]
+
+    @Test("Once the Bar App records its move, the old Documents folder is never read", arguments: moveFlagCases)
+    func moveFlagKeepsBarUIOutOfDocuments(_ testCase: MoveFlagCase) throws {
+        let fixture = try Fixture()
+        fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.CodexBar"]
+        if let flag = testCase.flag {
+            fixture.preferences.domains["com.gordonbeeming.CodexBar"] = ["telemetryFolderMigrated": flag]
+        }
+        try fixture.makeFolder(fixture.legacyFolder(of: .codexBar), files: ["codexbar-metrics-2026-10-01.jsonl"])
+
+        let status = fixture.detector().status(of: .codexBar)
+
+        let expected = testCase.readsLegacy ? fixture.legacyFolder(of: .codexBar) : fixture.defaultFolder(of: .codexBar)
+        #expect(status.telemetryFolder?.path == expected.path)
+        #expect(status.state == (testCase.readsLegacy ? .offWithHistory : .off))
+    }
+
     @Test("Anything at the new default's path, even a file, keeps Bar UI out of Documents")
     func fileAtNewDefaultStillWins() throws {
         let fixture = try Fixture()

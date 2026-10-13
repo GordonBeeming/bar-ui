@@ -88,13 +88,14 @@ struct IncrementalImportTests {
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let weekly = LimitDescriptor(id: "codex:10080", name: "Weekly", windowDurationMinutes: nil, modelID: nil)
         let sample = LimitSample(app: .codexBar, limit: weekly, metric: .utilization, timeUnixNano: 1, value: 3)
+        try await archive.useImportFolder(folder.url, for: .codexBar)
         let start = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 100, droppedRecords: 1)
         try await archive.record(TelemetryRecords(), progress: start)
         let advanced = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 200, droppedRecords: 2)
 
-        let winner = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start)
-        let loser = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start)
-        let fresh = try await archive.record(TelemetryRecords(), progress: start, readFrom: nil)
+        let winner = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start, in: folder.url)
+        let loser = try await archive.record(TelemetryRecords(limitSamples: [sample]), progress: advanced, readFrom: start, in: folder.url)
+        let fresh = try await archive.record(TelemetryRecords(), progress: start, readFrom: nil, in: folder.url)
 
         #expect(winner)
         #expect(!loser)
@@ -109,6 +110,7 @@ struct IncrementalImportTests {
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let weekly = LimitDescriptor(id: "codex:10080", name: "Weekly", windowDurationMinutes: nil, modelID: nil)
         let start = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 100, droppedRecords: 0)
+        try await archive.useImportFolder(folder.url, for: .codexBar)
         try await archive.record(TelemetryRecords(), progress: ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 200, droppedRecords: 0))
 
         let recorded = try await archive.record(
@@ -120,7 +122,8 @@ struct IncrementalImportTests {
                 perkGoneEvents: [PerkGoneEvent(app: .codexBar, kind: .resetCredit, currency: nil, quantity: 1, perkID: nil, expiresAt: nil, reportedReason: .used, timeUnixNano: 1)]
             ),
             progress: ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 300, droppedRecords: 0),
-            readFrom: start
+            readFrom: start,
+            in: folder.url
         )
 
         #expect(!recorded)
@@ -184,11 +187,82 @@ struct IncrementalImportTests {
         let folder = try TemporaryFolder()
         let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
         let first = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 50, droppedRecords: 0)
+        try await archive.useImportFolder(folder.url, for: .codexBar)
 
-        let accepted = try await archive.record(TelemetryRecords(), progress: first, readFrom: nil)
+        let accepted = try await archive.record(TelemetryRecords(), progress: first, readFrom: nil, in: folder.url)
 
         #expect(accepted)
         #expect(try await archive.progress(of: .codexBar, fileName: Self.fileName) == first)
+    }
+
+    struct FolderChangeCase: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        /// Lines already in the new folder's file before the old file's lines are appended to it.
+        let alreadyThere: Range<Int>
+        /// Lines the Bar App appended to the old file's lines after the move.
+        let appendedAfter: Range<Int>
+        let samples: Int
+        let dropped: Int
+    }
+
+    static let folderChangeCases: [FolderChangeCase] = [
+        FolderChangeCase(testDescription: "old lines appended to a file already in the new folder", alreadyThere: 10..<20, appendedAfter: 0..<0, samples: 16, dropped: 4),
+        FolderChangeCase(testDescription: "file moved whole, then appended to", alreadyThere: 0..<0, appendedAfter: 10..<15, samples: 12, dropped: 3)
+    ]
+
+    @Test("When a Bar App's files come from a different folder, they are read again from the start, counting each record and skipped line once", arguments: folderChangeCases)
+    func folderChangeReadsFromTheStart(_ testCase: FolderChangeCase) async throws {
+        let fixture = try ImportFixture()
+        let newFolder = fixture.folder.url.appendingPathComponent("Application Support/CodexBar/Telemetry", isDirectory: true)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try Self.lines(0..<10).write(to: fixture.codexFolder.appendingPathComponent(Self.fileName))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+        let moved = Self.lines(testCase.alreadyThere) + Self.lines(0..<10) + Self.lines(testCase.appendedAfter)
+        try moved.write(to: newFolder.appendingPathComponent(Self.fileName))
+
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: newFolder)
+        let again = try await fixture.importer.importMetrics(of: .codexBar, from: newFolder)
+
+        #expect(again.filesRead == 0)
+        let progress = try await fixture.archive.progress(of: .codexBar, fileName: Self.fileName)
+        #expect(progress?.byteOffset == Int64(moved.count))
+        #expect(progress?.droppedRecords == testCase.dropped)
+        #expect(try await fixture.archive.samples(of: .codexBar, limitID: "codex:10080", metric: .utilization).count == testCase.samples)
+    }
+
+    @Test("Skipped records from a file that didn't come along to the new folder stay reported")
+    func folderChangeKeepsSkippedRecordsOfGoneFiles() async throws {
+        let fixture = try ImportFixture()
+        let newFolder = fixture.folder.url.appendingPathComponent("Application Support/CodexBar/Telemetry", isDirectory: true)
+        try FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        try Self.lines(0..<10).write(to: fixture.codexFolder.appendingPathComponent("codexbar-metrics-2026-10-11.jsonl"))
+        try Self.lines(0..<5).write(to: fixture.codexFolder.appendingPathComponent(Self.fileName))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+        try Self.lines(0..<5).write(to: newFolder.appendingPathComponent(Self.fileName))
+
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: newFolder)
+
+        #expect(try await fixture.archive.skippedRecords(of: .codexBar) == [
+            SkippedRecords(day: TelemetryDay(year: 2026, month: 10, day: 11), count: 2),
+            SkippedRecords(day: TelemetryDay(year: 2026, month: 10, day: 12), count: 1)
+        ])
+    }
+
+    @Test("An import read from the old folder is turned away once another importer has moved to a new one")
+    func importFromSupersededFolderIsRejected() async throws {
+        let folder = try TemporaryFolder()
+        let archive = try Archive(url: folder.url.appendingPathComponent("Archive.sqlite"))
+        let old = folder.url.appendingPathComponent("Old", isDirectory: true)
+        let new = folder.url.appendingPathComponent("New", isDirectory: true)
+        try await archive.useImportFolder(old, for: .codexBar)
+        try await archive.useImportFolder(new, for: .codexBar)
+        let progress = ImportProgress(app: .codexBar, fileName: Self.fileName, byteOffset: 50, droppedRecords: 0)
+
+        let stale = try await archive.record(TelemetryRecords(), progress: progress, readFrom: nil, in: old)
+        let current = try await archive.record(TelemetryRecords(), progress: progress, readFrom: nil, in: new)
+
+        #expect(!stale)
+        #expect(current)
     }
 
     @Test("After a restart, only the lines appended since the last import are read")

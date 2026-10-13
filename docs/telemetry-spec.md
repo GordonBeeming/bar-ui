@@ -34,10 +34,10 @@ Moving from the old default. The default used to be `~/Documents/<AppName> Telem
 - MUST NOT touch any other file in the old folder. The one exception is a `.DS_Store`: when it is the only thing left, the Bar App deletes it and removes the folder. Otherwise the folder stays.
 - MUST NOT follow the old folder if it is a symbolic link.
 - MUST NOT append a file's lines twice. If a moved file can't be deleted afterwards, a later launch must not append it again.
-- Once none of its files are left in the old folder, MUST record that the move is done and stop checking Documents on later launches. Checking it is what makes macOS ask.
+- Once none of its files are left in the old folder, or when there was no old folder to begin with, MUST record `telemetryFolderMigrated` = `true` in its defaults domain ([6.1](#61-reading)) and stop checking Documents on later launches. Checking it is what makes macOS ask.
 - MUST keep writing to the new default even if moving a file fails.
 
-A reader looks in the new default first. It reads the old folder only while the new one doesn't exist, which is the case for a Bar App build from before the move.
+A reader MUST NOT look in the old folder once `telemetryFolderMigrated` is `true`, or once anything exists at the new default's path. It reads the old folder only when the flag is missing, nothing is at the new path and the old folder exists, which is the case for a Bar App build from before the move. A missing new folder on its own proves nothing, because a Bar App that has moved but never tracked doesn't have one yet.
 
 Readers:
 
@@ -170,6 +170,7 @@ Bar UI reads these keys from the Bar App's defaults domain (its bundle ID) and n
 | `telemetryIntervalMinutes` | Int | 1 to 1440. A Bar App accepts any value in range, not only its picker presets. |
 | `telemetryRetentionDays` | Int | 0 means forever, otherwise 1 to 3650 |
 | `telemetryDirectory` | String | Absolute path of the Telemetry Folder. Missing means the default. |
+| `telemetryFolderMigrated` | Bool | `true` once the move from the old Documents default is done ([2](#2-files)). Missing means a build from before the move. |
 
 ### 6.2 Changing: URL scheme
 

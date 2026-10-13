@@ -21,6 +21,7 @@ public struct BarAppDetector: Sendable {
         static let telemetryDirectory = "telemetryDirectory"
         static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
         static let telemetryRetentionDays = "telemetryRetentionDays"
+        static let telemetryFolderMigrated = "telemetryFolderMigrated"
     }
 
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "BarAppDetector")
@@ -74,15 +75,22 @@ public struct BarAppDetector: Sendable {
             .appendingPathComponent(app.displayName, isDirectory: true)
             .appendingPathComponent("Telemetry", isDirectory: true)
         // The default used to be in Documents. A Bar App build from before the
-        // move still writes there, so that folder is read only while the new
-        // one doesn't exist; checking it is what makes macOS ask for access to
-        // Documents, so it is never touched once the Bar App has moved.
+        // move still writes there, so that folder is the fallback for one.
+        // Checking it is what makes macOS ask for access to Documents, so it
+        // is never looked at once the Bar App says its move is done, or once
+        // anything, even a stray file, is at the new path. A missing new
+        // folder alone proves nothing: a moved Bar App that has never
+        // tracked has no folder yet either.
+        if preferences.value(forKey: Key.telemetryFolderMigrated, inDomain: app.bundleIdentifier) as? Bool == true {
+            return current
+        }
+        if FileManager.default.fileExists(atPath: current.path) {
+            return current
+        }
         let legacy = homeDirectory
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("\(app.displayName) Telemetry", isDirectory: true)
-        // Anything at the new path, even a stray file, means the Bar App has
-        // moved on; only a missing path lets the old folder be looked at.
-        if !FileManager.default.fileExists(atPath: current.path), isDirectory(legacy) {
+        if isDirectory(legacy) {
             return legacy
         }
         return current
