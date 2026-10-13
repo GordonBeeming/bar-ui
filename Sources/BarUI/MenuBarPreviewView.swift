@@ -172,7 +172,7 @@ private struct HourlyChart: View {
         } else {
             StackedTokensChart(usage: usage, unit: .hour, compact: true)
                 .frame(height: 60)
-                .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by cache reads, new input and output")
+                .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by cache reads, input and output")
         }
     }
 }

@@ -25,7 +25,7 @@ public enum TokenKind: String, Sendable, CaseIterable, Hashable {
     public var label: String {
         switch self {
         case .cacheRead: "Cache reads"
-        case .newInput: "New input"
+        case .newInput: "Input"
         case .output: "Output"
         }
     }
@@ -34,7 +34,7 @@ public enum TokenKind: String, Sendable, CaseIterable, Hashable {
     public var shortLabel: String {
         switch self {
         case .cacheRead: "cached"
-        case .newInput: "new in"
+        case .newInput: "in"
         case .output: "out"
         }
     }

@@ -65,7 +65,7 @@ private struct TokensChart: View {
         } else {
             StackedTokensChart(usage: usage, unit: range.bucketComponent)
                 .frame(height: 220)
-                .accessibilityLabel("Tokens over time, stacked by cache reads, new input and output")
+                .accessibilityLabel("Tokens over time, stacked by cache reads, input and output")
         }
     }
 }
