@@ -142,8 +142,15 @@ private struct LimitCardView: View {
                 .accessibilityLabel("\(card.appName) \(card.windowName) used")
                 .accessibilityValue(DisplayFormat.points(card.percentUsed))
 
+            // The cards sit side by side, so a Limit with no pace reading yet
+            // keeps the line's space: every card stays the same height and the
+            // reset lines stay level.
             if let pace = card.paceText, let gap = card.paceGap {
                 PaceLabel(text: pace, gap: gap)
+            } else {
+                PaceLabel(text: "0% headroom", gap: 0)
+                    .hidden()
+                    .accessibilityHidden(true)
             }
             Text(card.resetDetailText)
                 .font(.caption)
