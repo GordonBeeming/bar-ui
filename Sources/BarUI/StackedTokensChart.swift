@@ -2,7 +2,7 @@ import BarUICore
 import Charts
 import SwiftUI
 
-/// Tokens per bucket, stacked by Bar App in each Bar App's colour. The
+/// Tokens per bucket, stacked by kind (cache reads, new input, output). The
 /// Overview shows it full size with an axis and legend; the Menu Bar Preview
 /// shows it `compact`, as a sparkline.
 struct StackedTokensChart: View {
@@ -26,13 +26,13 @@ struct StackedTokensChart: View {
     var body: some View {
         Chart {
             ForEach(usage.buckets, id: \.start) { bucket in
-                ForEach(BarApp.allCases, id: \.self) { app in
-                    if let tokens = bucket.tokensByApp[app], tokens > 0 {
+                ForEach(TokenKind.allCases, id: \.self) { kind in
+                    if let tokens = bucket.tokensByKind[kind], tokens > 0 {
                         BarMark(
                             x: .value("Time", bucket.start, unit: unit),
                             y: .value("Tokens", tokens)
                         )
-                        .foregroundStyle(by: .value("Bar App", app.displayName))
+                        .foregroundStyle(by: .value("Kind", kind.label))
                     }
                 }
             }
@@ -45,8 +45,8 @@ struct StackedTokensChart: View {
         .chartXSelection(value: $pointerDate)
         .edgeSafeTimeAxis(unit: unit, span: usage.timeDomain(component: unit), desiredCount: compact ? 4 : 6)
         .chartForegroundStyleScale(
-            domain: BarApp.allCases.map(\.displayName),
-            range: BarApp.allCases.map(\.brandColor)
+            domain: TokenKind.allCases.map(\.label),
+            range: TokenKind.allCases.map(\.color)
         )
         .chartLegend(compact ? .hidden : .automatic)
         .tokensXDomain(usage.timeDomain(component: unit))
@@ -65,13 +65,19 @@ struct StackedTokensChart: View {
         ChartCallout {
             Text(bucket.rangeText(component: unit))
                 .fontWeight(.semibold)
+            ForEach(TokenKind.allCases.reversed(), id: \.self) { kind in
+                if let tokens = bucket.tokensByKind[kind], tokens > 0 {
+                    Text("\(kind.label): \(tokens.formatted())")
+                }
+            }
+            Text("Total: \(bucket.tokensByKind.values.reduce(0, +).formatted())")
+                .fontWeight(.semibold)
             ForEach(BarApp.allCases, id: \.self) { app in
                 if let tokens = bucket.tokensByApp[app], tokens > 0 {
                     Text("\(app.displayName): \(tokens.formatted())")
+                        .foregroundStyle(.secondary)
                 }
             }
-            Text("Total: \(bucket.tokensByApp.values.reduce(0, +).formatted())")
-                .fontWeight(.semibold)
         }
     }
 }

@@ -120,6 +120,7 @@ private struct PreviewContent: View {
                         .help(cost(for: usage)?.rateNote ?? "Loading prices")
                         .accessibilityLabel("API Cost \(cost(for: usage)?.value ?? "loading")")
                 }
+                TokenKindSplit(totals: usage.totalByKind)
                 Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
                     .font(.caption)
                     .monospacedDigit()
@@ -171,7 +172,7 @@ private struct HourlyChart: View {
         } else {
             StackedTokensChart(usage: usage, unit: .hour, compact: true)
                 .frame(height: 60)
-                .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by Bar App")
+                .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by cache reads, new input and output")
         }
     }
 }
