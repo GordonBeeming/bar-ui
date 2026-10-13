@@ -22,5 +22,7 @@
     <true/>
     <key>LSBackgroundOnly</key>
     <true/>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Bar UI keeps importing the usage files ClaudeBar and CodexBar write while it's closed, when their Telemetry Folder is in Documents.</string>
 </dict>
 </plist>

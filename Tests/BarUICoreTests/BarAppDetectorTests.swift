@@ -67,14 +67,39 @@ struct BarAppDetectorTests {
         #expect(fixture.detector().status(of: .codexBar).state == .off)
     }
 
-    @Test("The Telemetry Folder defaults to ~/Documents/<AppName> Telemetry")
+    @Test("The Telemetry Folder defaults to ~/Library/Application Support/<AppName>/Telemetry")
     func defaultTelemetryFolder() throws {
         let fixture = try Fixture()
         fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.CodexBar"]
 
         let status = fixture.detector().status(of: .codexBar)
 
-        #expect(status.telemetryFolder?.path == fixture.home.path + "/Documents/CodexBar Telemetry")
+        #expect(status.telemetryFolder?.path == fixture.home.path + "/Library/Application Support/CodexBar/Telemetry")
+    }
+
+    @Test("A Bar App build that still writes to the old Documents default is read from there")
+    func legacyDefaultWhenOnlyItExists() throws {
+        let fixture = try Fixture()
+        fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.ClaudeBar"]
+        try fixture.makeFolder(fixture.legacyFolder(of: .claudeBar), files: ["claudebar-metrics-2026-10-01.jsonl"])
+
+        let status = fixture.detector().status(of: .claudeBar)
+
+        #expect(status.telemetryFolder?.path == fixture.legacyFolder(of: .claudeBar).path)
+        #expect(status.state == .offWithHistory)
+    }
+
+    @Test("Once the new default exists, the old Documents folder isn't read")
+    func newDefaultWinsOverLegacy() throws {
+        let fixture = try Fixture()
+        fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.ClaudeBar"]
+        try fixture.makeFolder(fixture.defaultFolder(of: .claudeBar))
+        try fixture.makeFolder(fixture.legacyFolder(of: .claudeBar), files: ["claudebar-metrics-2026-10-01.jsonl"])
+
+        let status = fixture.detector().status(of: .claudeBar)
+
+        #expect(status.telemetryFolder?.path == fixture.defaultFolder(of: .claudeBar).path)
+        #expect(status.state == .off)
     }
 
     @Test("A custom Telemetry Folder set in the Bar App is used instead of the default")
@@ -114,7 +139,7 @@ struct BarAppDetectorTests {
 
         let status = fixture.detector().status(of: .codexBar)
 
-        #expect(status.telemetryFolder?.path == fixture.home.path + "/Documents/CodexBar Telemetry")
+        #expect(status.telemetryFolder?.path == fixture.home.path + "/Library/Application Support/CodexBar/Telemetry")
     }
 
     @Test("A Bar App that isn't installed is Not installed, even with settings and files left behind")
@@ -170,6 +195,10 @@ final class Fixture {
     }
 
     func defaultFolder(of app: BarApp) -> URL {
+        home.appendingPathComponent("Library/Application Support/\(app.displayName)/Telemetry", isDirectory: true)
+    }
+
+    func legacyFolder(of app: BarApp) -> URL {
         home.appendingPathComponent("Documents/\(app.displayName) Telemetry", isDirectory: true)
     }
 }

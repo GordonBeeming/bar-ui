@@ -24,6 +24,8 @@
     <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Bar UI reads the usage files ClaudeBar and CodexBar write, when their Telemetry Folder is in Documents.</string>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Gordon Beeming</string>
 </dict>

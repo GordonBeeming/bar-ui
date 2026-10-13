@@ -16,7 +16,7 @@ Bar UI drops any record that doesn't conform, counts what it dropped, and links 
 
 | | |
 |---|---|
-| Folder | The **Telemetry Folder**. Default `~/Documents/<AppName> Telemetry` (for example `~/Documents/ClaudeBar Telemetry`). |
+| Folder | The **Telemetry Folder**. Default `~/Library/Application Support/<AppName>/Telemetry` (for example `~/Library/Application Support/ClaudeBar/Telemetry`). It isn't in Documents, because macOS asks the person to allow every app that reads or writes there. |
 | Metrics file | `<service.name>-metrics-YYYY-MM-DD.jsonl` |
 | Logs file | `<service.name>-logs-YYYY-MM-DD.jsonl` |
 | Date in the name | The UTC date the record was written. |
@@ -27,6 +27,14 @@ Writers:
 - MUST only append. MUST NOT rewrite or reorder earlier lines.
 - MUST NOT leave a partial line that later data gets appended after. If the file doesn't end in `\n` (say after a crash), the writer truncates back to the last `\n` before appending.
 - MUST delete old data a whole file at a time, by the date in the file name. A retention of `0` means keep forever. Only files that match the two name patterns above are ever deleted.
+
+Moving from the old default. The default used to be `~/Documents/<AppName> Telemetry`. When a Bar App starts with no folder chosen and that old folder exists, it:
+
+- MUST move the files matching its two name patterns into the new default before writing anything. A file whose name is already in the new folder has its complete lines appended to that file instead.
+- MUST NOT touch any other file in the old folder, and removes the old folder only if it is then empty (a `.DS_Store` doesn't count).
+- MUST keep writing to the new default even if moving a file fails.
+
+A reader looks in the new default first. It reads the old folder only while the new one doesn't exist, which is the case for a Bar App build from before the move.
 
 Readers:
 

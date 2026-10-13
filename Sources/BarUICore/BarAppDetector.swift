@@ -69,9 +69,26 @@ public struct BarAppDetector: Sendable {
            custom.hasPrefix("/") {
             return URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL
         }
-        return homeDirectory
+        let current = homeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(app.displayName, isDirectory: true)
+            .appendingPathComponent("Telemetry", isDirectory: true)
+        // The default used to be in Documents. A Bar App build from before the
+        // move still writes there, so that folder is read only while the new
+        // one doesn't exist; checking it is what makes macOS ask for access to
+        // Documents, so it is never touched once the Bar App has moved.
+        let legacy = homeDirectory
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("\(app.displayName) Telemetry", isDirectory: true)
+        if !isDirectory(current), isDirectory(legacy) {
+            return legacy
+        }
+        return current
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private func hasTelemetryFiles(of app: BarApp, in folder: URL) -> Bool {
