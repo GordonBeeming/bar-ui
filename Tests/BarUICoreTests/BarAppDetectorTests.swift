@@ -89,6 +89,20 @@ struct BarAppDetectorTests {
         #expect(status.state == .offWithHistory)
     }
 
+    @Test("Anything at the new default's path, even a file, keeps Bar UI out of Documents")
+    func fileAtNewDefaultStillWins() throws {
+        let fixture = try Fixture()
+        fixture.locator.installedBundleIdentifiers = ["com.gordonbeeming.ClaudeBar"]
+        let current = fixture.defaultFolder(of: .claudeBar)
+        try FileManager.default.createDirectory(at: current.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: current)
+        try fixture.makeFolder(fixture.legacyFolder(of: .claudeBar), files: ["claudebar-metrics-2026-10-01.jsonl"])
+
+        let status = fixture.detector().status(of: .claudeBar)
+
+        #expect(status.telemetryFolder?.path == current.path)
+    }
+
     @Test("Once the new default exists, the old Documents folder isn't read")
     func newDefaultWinsOverLegacy() throws {
         let fixture = try Fixture()

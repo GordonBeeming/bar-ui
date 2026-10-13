@@ -31,7 +31,10 @@ Writers:
 Moving from the old default. The default used to be `~/Documents/<AppName> Telemetry`. When a Bar App starts with no folder chosen and that old folder exists, it:
 
 - MUST move the files matching its two name patterns into the new default before writing anything. A file whose name is already in the new folder has its complete lines appended to that file instead.
-- MUST NOT touch any other file in the old folder, and removes the old folder only if it is then empty (a `.DS_Store` doesn't count).
+- MUST NOT touch any other file in the old folder. The one exception is a `.DS_Store`: when it is the only thing left, the Bar App deletes it and removes the folder. Otherwise the folder stays.
+- MUST NOT follow the old folder if it is a symbolic link.
+- MUST NOT append a file's lines twice. If a moved file can't be deleted afterwards, a later launch must not append it again.
+- Once none of its files are left in the old folder, MUST record that the move is done and stop checking Documents on later launches. Checking it is what makes macOS ask.
 - MUST keep writing to the new default even if moving a file fails.
 
 A reader looks in the new default first. It reads the old folder only while the new one doesn't exist, which is the case for a Bar App build from before the move.

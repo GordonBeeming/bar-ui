@@ -80,7 +80,9 @@ public struct BarAppDetector: Sendable {
         let legacy = homeDirectory
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("\(app.displayName) Telemetry", isDirectory: true)
-        if !isDirectory(current), isDirectory(legacy) {
+        // Anything at the new path, even a stray file, means the Bar App has
+        // moved on; only a missing path lets the old folder be looked at.
+        if !FileManager.default.fileExists(atPath: current.path), isDirectory(legacy) {
             return legacy
         }
         return current
