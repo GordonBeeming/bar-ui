@@ -50,13 +50,15 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
 
     /// `averageResets` is every reset the Archive holds for this Limit, for the
     /// average and the last reset; without it, the history's own resets are
-    /// used. `now` defaults to the newest sample or reset.
-    public init(history: LimitHistory, averageResets: [LimitReset]? = nil, now: Date? = nil) {
+    /// used. `now` defaults to the newest sample or reset. `trackingStarts` are
+    /// the Bar App's `bar.tracking.started` times; one inside a silence marks
+    /// it as Tracking having been off, however short.
+    public init(history: LimitHistory, averageResets: [LimitReset]? = nil, trackingStarts: [Date] = [], now: Date? = nil) {
         app = history.app
         limitID = history.limit.id
         name = history.limit.name
         windowText = Self.windowText(minutes: history.limit.windowDurationMinutes)
-        segments = Self.segments(of: history.utilization)
+        segments = Self.segments(of: history.utilization, trackingStarts: trackingStarts)
         resetMarkers = history.resets
             .sorted { $0.timeUnixNano < $1.timeUnixNano }
             .map { ResetMarker(date: Date(unixNano: $0.timeUnixNano), unusedPercent: 100 - $0.utilizationLast) }
@@ -81,7 +83,12 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
 
     /// Shortest Window first, unknown Windows last, then by ID so a renamed
     /// label doesn't reshuffle the page.
-    public static func rows(from histories: [LimitHistory], resets: [String: [LimitReset]]? = nil, now: Date? = nil) -> [LimitHistoryRow] {
+    public static func rows(
+        from histories: [LimitHistory],
+        resets: [String: [LimitReset]]? = nil,
+        trackingStarts: [Date] = [],
+        now: Date? = nil
+    ) -> [LimitHistoryRow] {
         histories
             .sorted {
                 let lhs = $0.limit.windowDurationMinutes ?? .max
@@ -89,7 +96,12 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
                 return lhs != rhs ? lhs < rhs : $0.limit.id < $1.limit.id
             }
             .map { history in
-                LimitHistoryRow(history: history, averageResets: resets.map { $0[history.limit.id] ?? [] }, now: now)
+                LimitHistoryRow(
+                    history: history,
+                    averageResets: resets.map { $0[history.limit.id] ?? [] },
+                    trackingStarts: trackingStarts,
+                    now: now
+                )
             }
     }
 
@@ -109,7 +121,7 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
         return unit(minutes, "minute")
     }
 
-    private static func segments(of samples: [ArchivedSample]) -> [[Point]] {
+    private static func segments(of samples: [ArchivedSample], trackingStarts: [Date]) -> [[Point]] {
         guard samples.count > 1 else {
             return samples.isEmpty ? [] : [samples.map(point)]
         }
@@ -119,9 +131,16 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
         let usual = seconds.sorted()[(seconds.count - 1) / 2]
         let threshold = max(usual * gapIntervals, smallestGap)
 
+        // A sleeping Mac's Bar App samples more slowly but logs nothing, so a
+        // long silence alone is the only sign of a break; a restart logged
+        // inside a silence says Tracking was off, however short.
+        let starts = trackingStarts.sorted()
         var segments: [[Point]] = [[point(samples[0])]]
-        for (sample, gap) in zip(samples.dropFirst(), seconds) {
-            if gap > threshold {
+        for (previous, (sample, gap)) in zip(samples, zip(samples.dropFirst(), seconds)) {
+            let from = Date(unixNano: previous.timeUnixNano)
+            let to = Date(unixNano: sample.timeUnixNano)
+            let restarted = starts.contains { $0 > from && $0 <= to }
+            if gap > threshold || restarted {
                 segments.append([])
             }
             segments[segments.count - 1].append(point(sample))

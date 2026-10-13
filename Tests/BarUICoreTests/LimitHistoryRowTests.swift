@@ -125,6 +125,18 @@ struct LimitHistoryRowTests {
         #expect(row.bridges.isEmpty)
     }
 
+    @Test("A short silence with Tracking restarted inside it is a real gap; the same silence without a restart isn't")
+    func trackingRestartMarksAShortGap() {
+        let samples: [(Int, Double)] = (0..<6).map { ($0 * 300, 10) } + (0..<6).map { (1_500 + 1_800 + $0 * 300, 12) }
+        let history = Self.history(utilization: samples, resets: [])
+
+        let restarted = LimitHistoryRow(history: history, trackingStarts: [Self.date(1_500 + 1_800)])
+        let asleep = LimitHistoryRow(history: history)
+
+        #expect(restarted.segments.count == 2)
+        #expect(asleep.segments.count == 1)
+    }
+
     @Test("Samples at the usual pace stay one line")
     func noGap() {
         let history = Self.history(utilization: [(0, 10), (300, 12), (600, 14), (1_000, 16)], resets: [])
