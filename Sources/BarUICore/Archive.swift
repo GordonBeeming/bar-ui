@@ -107,6 +107,10 @@ public actor Archive {
                 dropped_records INTEGER NOT NULL,
                 PRIMARY KEY (app, file_name)
             ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS import_folders (
+                app TEXT NOT NULL PRIMARY KEY,
+                folder TEXT NOT NULL
+            ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS limit_events (
                 app TEXT NOT NULL,
                 limit_id TEXT NOT NULL,

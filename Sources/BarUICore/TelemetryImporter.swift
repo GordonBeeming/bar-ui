@@ -32,13 +32,16 @@ public struct TelemetryImporter: Sendable {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return summary
         }
+        // Only a folder that could be listed becomes the import folder, so a
+        // custom folder on a detached volume doesn't throw away the positions.
+        try await archive.useImportFolder(folder, for: app)
 
         // Oldest first, so a Limit's description ends on its newest name even
         // on a first import of many days.
         for name in names.filter({ app.isMetricsFileName($0) || app.isLogsFileName($0) }).sorted() {
             let file = folder.appendingPathComponent(name, isDirectory: false)
             do {
-                if let read = try await importFile(file, named: name, of: app) {
+                if let read = try await importFile(file, named: name, of: app, in: folder) {
                     summary.filesRead += 1
                     summary.samplesRead += read.samples
                     summary.resetsRead += read.resets
@@ -60,17 +63,19 @@ public struct TelemetryImporter: Sendable {
         return summary
     }
 
-    private func importFile(_ file: URL, named name: String, of app: BarApp) async throws -> (samples: Int, resets: Int, dropped: Int)? {
+    private func importFile(_ file: URL, named name: String, of app: BarApp, in folder: URL) async throws -> (samples: Int, resets: Int, dropped: Int)? {
         let previous = try await archive.progress(of: app, fileName: name)
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init) ?? 0
         var offset = previous?.byteOffset ?? 0
-        var droppedSoFar = previous?.droppedRecords ?? 0
         if size < offset {
             // Writers only append, so a shorter file is a different file under
-            // the same name. Its old position and count no longer apply.
+            // the same name. Its old position no longer applies.
             offset = 0
-            droppedSoFar = 0
         }
+        // Reading from the start counts every skipped line again, so a count
+        // left from an earlier read of the file (or of the one it was in
+        // before a folder change) is replaced rather than added to.
+        let droppedSoFar = offset == 0 ? 0 : previous?.droppedRecords ?? 0
         guard size > offset || previous == nil else {
             return nil
         }
@@ -100,7 +105,8 @@ public struct TelemetryImporter: Sendable {
                 byteOffset: offset + Int64(result.consumedByteCount),
                 droppedRecords: droppedSoFar + result.droppedRecords
             ),
-            readFrom: previous
+            readFrom: previous,
+            in: folder
         )
         guard recorded else {
             // Another window or Bar UI process imported this file while it

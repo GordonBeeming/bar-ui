@@ -6,9 +6,12 @@ import SQLite3
 public struct ImportProgress: Sendable, Hashable {
     public let app: BarApp
     public let fileName: String
+    /// Zero means nothing of the file has been read yet, including after the
+    /// Bar App's files started coming from another folder.
     public let byteOffset: Int64
     /// Running total for the file. It outlives the file, which is how skipped
-    /// records stay reported after the Bar App's retention deletes it.
+    /// records stay reported after the Bar App's retention deletes it. A read
+    /// from offset zero counts the file afresh and replaces it.
     public let droppedRecords: Int
 
     public init(app: BarApp, fileName: String, byteOffset: Int64, droppedRecords: Int) {
@@ -20,17 +23,53 @@ public struct ImportProgress: Sendable, Hashable {
 }
 
 extension Archive {
+    /// Makes `folder` the one a Bar App's files are imported from. Read
+    /// positions belong to the files they were taken in, so when the folder
+    /// differs from the last one (or none was kept yet), every file of that
+    /// Bar App goes back to offset zero and is read again from the start. A
+    /// same-named file in the new folder, such as an old file appended to one
+    /// already there, would otherwise be read from a position in a different
+    /// file. Records already archived are ignored on the re-read, and skipped
+    /// counts stay on files that didn't come along until a re-read replaces
+    /// them.
+    public func useImportFolder(_ folder: URL, for app: BarApp) throws {
+        // IMMEDIATE so two importers switching at once can't both reset, and
+        // so the reset lands between imports rather than inside one.
+        try execute("BEGIN IMMEDIATE", operation: "start switching import folders")
+        do {
+            let path = Self.folderIdentity(folder)
+            if try storedImportFolder(of: app) != path {
+                try prepare("UPDATE imported_files SET byte_offset = 0 WHERE app = ?1")
+                    .run(.text(app.rawValue))
+                try prepare("""
+                    INSERT INTO import_folders (app, folder) VALUES (?1, ?2)
+                    ON CONFLICT (app) DO UPDATE SET folder = excluded.folder
+                    """).run(.text(app.rawValue), .text(path))
+            }
+            try execute("COMMIT", operation: "finish switching import folders")
+        } catch {
+            do {
+                try execute("ROLLBACK", operation: "roll back switching import folders")
+            } catch let rollbackError {
+                throw ArchiveError(operation: "switch import folders", message: "\(error.localizedDescription); then \(rollbackError.localizedDescription)", code: SQLITE_ERROR)
+            }
+            throw error
+        }
+    }
+
     /// Stores the records and the file's new read position together, so a
     /// crash part way can't move the position past records that were lost,
     /// but only if the file's stored position is still `previous`, the one the
-    /// records were read from (nil when the file had none). Another window or
-    /// Bar UI process importing the same file may have moved it on in the
-    /// meantime; recording on top of that would count its skipped records
-    /// twice or move the position backwards. Returns false, recording
-    /// nothing, when the position had moved. Records already in the Archive
-    /// are left as they are.
-    public func record(_ records: TelemetryRecords, progress: ImportProgress, readFrom previous: ImportProgress?) throws -> Bool {
-        try record(records, progress: progress, expecting: .exactly(previous))
+    /// records were read from (nil when the file had none), and `folder` is
+    /// still the Bar App's import folder. Another window or Bar UI process
+    /// importing the same file may have moved it on, or switched folders, in
+    /// the meantime; recording on top of that would count its skipped records
+    /// twice, move the position backwards, or leave a position from a file
+    /// that is no longer the one being read. Returns false, recording
+    /// nothing, in either case. Records already in the Archive are left as
+    /// they are.
+    public func record(_ records: TelemetryRecords, progress: ImportProgress, readFrom previous: ImportProgress?, in folder: URL) throws -> Bool {
+        try record(records, progress: progress, expecting: .exactly(previous, folder: Self.folderIdentity(folder)))
     }
 
     /// Records whatever position the file had. Only tests set up an Archive
@@ -42,7 +81,11 @@ extension Archive {
 
     private enum ExpectedProgress {
         case anything
-        case exactly(ImportProgress?)
+        case exactly(ImportProgress?, folder: String)
+    }
+
+    private static func folderIdentity(_ folder: URL) -> String {
+        folder.standardizedFileURL.path
     }
 
     private func record(_ records: TelemetryRecords, progress: ImportProgress, expecting expected: ExpectedProgress) throws -> Bool {
@@ -50,9 +93,9 @@ extension Archive {
         // no other connection can move it between the check and the write.
         try execute("BEGIN IMMEDIATE", operation: "start an import")
         do {
-            if case .exactly(let previous) = expected {
+            if case .exactly(let previous, let folder) = expected {
                 let stored = try storedProgress(of: progress.app, fileName: progress.fileName)
-                guard stored == previous else {
+                guard stored == previous, try storedImportFolder(of: progress.app) == folder else {
                     try execute("ROLLBACK", operation: "give up a stale import")
                     return false
                 }
@@ -223,6 +266,15 @@ extension Archive {
 
     public func progress(of app: BarApp, fileName: String) throws -> ImportProgress? {
         try storedProgress(of: app, fileName: fileName)
+    }
+
+    private func storedImportFolder(of app: BarApp) throws -> String? {
+        let statement = try prepare("SELECT folder FROM import_folders WHERE app = ?1")
+        try statement.bind(.text(app.rawValue))
+        guard try statement.step() else {
+            return nil
+        }
+        return statement.text(at: 0)
     }
 
     private func storedProgress(of app: BarApp, fileName: String) throws -> ImportProgress? {

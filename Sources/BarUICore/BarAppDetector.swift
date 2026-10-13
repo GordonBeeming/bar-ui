@@ -21,6 +21,7 @@ public struct BarAppDetector: Sendable {
         static let telemetryDirectory = "telemetryDirectory"
         static let telemetryIntervalMinutes = "telemetryIntervalMinutes"
         static let telemetryRetentionDays = "telemetryRetentionDays"
+        static let telemetryFolderMigrated = "telemetryFolderMigrated"
     }
 
     private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "BarAppDetector")
@@ -69,9 +70,35 @@ public struct BarAppDetector: Sendable {
            custom.hasPrefix("/") {
             return URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL
         }
-        return homeDirectory
+        let current = homeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(app.displayName, isDirectory: true)
+            .appendingPathComponent("Telemetry", isDirectory: true)
+        // The default used to be in Documents. A Bar App build from before the
+        // move still writes there, so that folder is the fallback for one.
+        // Checking it is what makes macOS ask for access to Documents, so it
+        // is never looked at once the Bar App says its move is done, or once
+        // anything, even a stray file, is at the new path. A missing new
+        // folder alone proves nothing: a moved Bar App that has never
+        // tracked has no folder yet either.
+        if preferences.value(forKey: Key.telemetryFolderMigrated, inDomain: app.bundleIdentifier) as? Bool == true {
+            return current
+        }
+        if FileManager.default.fileExists(atPath: current.path) {
+            return current
+        }
+        let legacy = homeDirectory
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("\(app.displayName) Telemetry", isDirectory: true)
+        if isDirectory(legacy) {
+            return legacy
+        }
+        return current
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private func hasTelemetryFiles(of app: BarApp, in folder: URL) -> Bool {

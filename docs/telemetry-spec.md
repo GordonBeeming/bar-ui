@@ -16,7 +16,7 @@ Bar UI drops any record that doesn't conform, counts what it dropped, and links 
 
 | | |
 |---|---|
-| Folder | The **Telemetry Folder**. Default `~/Documents/<AppName> Telemetry` (for example `~/Documents/ClaudeBar Telemetry`). |
+| Folder | The **Telemetry Folder**. Default `~/Library/Application Support/<AppName>/Telemetry` (for example `~/Library/Application Support/ClaudeBar/Telemetry`). It isn't in Documents, because macOS asks the person to allow every app that reads or writes there. |
 | Metrics file | `<service.name>-metrics-YYYY-MM-DD.jsonl` |
 | Logs file | `<service.name>-logs-YYYY-MM-DD.jsonl` |
 | Date in the name | The UTC date the record was written. |
@@ -27,6 +27,17 @@ Writers:
 - MUST only append. MUST NOT rewrite or reorder earlier lines.
 - MUST NOT leave a partial line that later data gets appended after. If the file doesn't end in `\n` (say after a crash), the writer truncates back to the last `\n` before appending.
 - MUST delete old data a whole file at a time, by the date in the file name. A retention of `0` means keep forever. Only files that match the two name patterns above are ever deleted.
+
+Moving from the old default. The default used to be `~/Documents/<AppName> Telemetry`. When a Bar App starts with no folder chosen and that old folder exists, it:
+
+- MUST move the files matching its two name patterns into the new default before writing anything. A file whose name is already in the new folder has its complete lines appended to that file instead.
+- MUST NOT touch any other file in the old folder. The one exception is a `.DS_Store`: when it is the only thing left, the Bar App deletes it and removes the folder. Otherwise the folder stays.
+- MUST NOT follow the old folder if it is a symbolic link.
+- MUST NOT append a file's lines twice. If a moved file can't be deleted afterwards, a later launch must not append it again.
+- Once none of its files are left in the old folder, or when there was no old folder to begin with, MUST record `telemetryFolderMigrated` = `true` in its defaults domain ([6.1](#61-reading)) and stop checking Documents on later launches. Checking it is what makes macOS ask.
+- MUST keep writing to the new default even if moving a file fails.
+
+A reader MUST NOT look in the old folder once `telemetryFolderMigrated` is `true`, or once anything exists at the new default's path. It reads the old folder only when the flag is missing, nothing is at the new path and the old folder exists, which is the case for a Bar App build from before the move. A missing new folder on its own proves nothing, because a Bar App that has moved but never tracked doesn't have one yet.
 
 Readers:
 
@@ -159,6 +170,7 @@ Bar UI reads these keys from the Bar App's defaults domain (its bundle ID) and n
 | `telemetryIntervalMinutes` | Int | 1 to 1440. A Bar App accepts any value in range, not only its picker presets. |
 | `telemetryRetentionDays` | Int | 0 means forever, otherwise 1 to 3650 |
 | `telemetryDirectory` | String | Absolute path of the Telemetry Folder. Missing means the default. |
+| `telemetryFolderMigrated` | Bool | `true` once the move from the old Documents default is done ([2](#2-files)). Missing means a build from before the move. |
 
 ### 6.2 Changing: URL scheme
 
