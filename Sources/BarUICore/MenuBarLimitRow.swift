@@ -16,15 +16,13 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     /// Where the meter would be with usage spread evenly over the Window.
     public let windowElapsed: Double?
     /// "24% headroom" or "10% over", or nil when the Window's length or reset
-    /// is unknown.
+    /// is unknown or usage is too low to judge.
     public let paceText: String?
     /// Positive is over, negative is headroom.
     public let paceGap: Double?
     public let burnRateText: String
     /// Set only when 100% comes before the Window resets.
     public let projectionText: String?
-
-    static let minimumUtilizationForPaceWarning: Double = 5
 
     public var isBurnRateHighlighted: Bool {
         projectionText != nil
@@ -57,7 +55,7 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
         }
         // A few points of change at the start of a Window says little about
         // the pace, and any start would read as too fast, so no warning yet.
-        guard card.utilization >= Self.minimumUtilizationForPaceWarning, let sustainedPace else {
+        guard card.utilization >= LimitCard.minimumUtilizationForPace, let sustainedPace else {
             projectionText = nil
             return
         }

@@ -36,9 +36,10 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// at if usage were spread evenly. Nil when the Window's length or reset
     /// time isn't known, or the reset is already due.
     public let windowElapsed: Double?
-    /// Positive is over, negative is headroom; nil when `windowElapsed` is.
+    /// Positive is over, negative is headroom; nil when `windowElapsed` is or
+    /// usage is under `minimumUtilizationForPace`.
     public let paceGap: Double?
-    /// "24% headroom" or "10% over", or nil when `windowElapsed` is.
+    /// "24% headroom" or "10% over", or nil whenever `paceGap` is.
     public let paceText: String?
     /// "Resets Tomorrow 5:00 PM · in 1d 9h".
     public let resetDetailText: String
@@ -121,8 +122,15 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// How far usage is from an even spread over the Window, in whole
     /// percentage points: positive is over (using allowance meant for later in
     /// the Window), negative is headroom that can be used now.
+    /// A few points into a Window, any reading is noise: "2% headroom" next to
+    /// 0% says nothing. Below this there's no pace verdict or warning at all.
+    static let minimumUtilizationForPace: Double = 5
+
     static func paceGap(utilization: Double, windowElapsed: Double?) -> Double? {
-        windowElapsed.map { utilization - $0 * 100 }
+        guard utilization >= minimumUtilizationForPace else {
+            return nil
+        }
+        return windowElapsed.map { utilization - $0 * 100 }
     }
 
     /// "24% headroom" or "10% over". The line isn't a target: headroom is
