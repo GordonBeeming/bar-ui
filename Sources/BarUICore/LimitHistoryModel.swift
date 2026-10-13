@@ -26,10 +26,14 @@ public final class LimitHistoryModel {
             let histories = try await archive.limitHistories(of: app, since: range.start(now: now))
             // The averages look back over their own span, not the chart's range.
             let resets = try await archive.limitResets(of: app)
+            // A restart inside a silence is what marks Tracking as having been off.
+            let starts = try await archive.trackingStarts(since: range.start(now: now))
+                .filter { $0.app == app }
+                .map { Date(unixNano: $0.timeUnixNano) }
             guard loadedApp == app, !Task.isCancelled else {
                 return
             }
-            rows = LimitHistoryRow.rows(from: histories, resets: resets, now: now)
+            rows = LimitHistoryRow.rows(from: histories, resets: resets, trackingStarts: starts, now: now)
             problem = nil
         } catch {
             // Keep the rows already on screen: a failed read says nothing

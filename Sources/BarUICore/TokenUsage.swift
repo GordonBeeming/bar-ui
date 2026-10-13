@@ -6,11 +6,20 @@ public struct TokenUsage: Sendable, Equatable {
     public struct Bucket: Sendable, Equatable {
         public let start: Date
         public let tokensByApp: [BarApp: Int64]
+        public let tokensByKind: [TokenKind: Int64]
+
+        init(start: Date, tokensByApp: [BarApp: Int64], tokensByKind: [TokenKind: Int64] = [:]) {
+            self.start = start
+            self.tokensByApp = tokensByApp
+            self.tokensByKind = tokensByKind
+        }
     }
 
     /// Oldest first, with no gaps: a quiet period is a bucket of zero.
     public let buckets: [Bucket]
     public let totalByApp: [BarApp: Int64]
+    /// The total split into cache reads, new input and output.
+    public let totalByKind: [TokenKind: Int64]
     /// Input, cache reads and cache writes, and output. Reasoning is inside
     /// output already, so it is never added.
     public let total: Int64
@@ -65,6 +74,8 @@ public struct TokenUsage: Sendable, Equatable {
         var reasoning: Int64 = 0
         var cacheRead: Int64 = 0
         var byBucket: [Date: [BarApp: Int64]] = [:]
+        var totalByKind: [TokenKind: Int64] = [:]
+        var kindByBucket: [Date: [TokenKind: Int64]] = [:]
         var tokensByModel: [String: [TokenType: Int64]] = [:]
         var tokensByAppAndModel: [BarApp: [String: [TokenType: Int64]]] = [:]
         for increase in increases {
@@ -86,9 +97,14 @@ public struct TokenUsage: Sendable, Equatable {
             let start = calendar.dateInterval(of: bucketComponent, for: Date(unixNano: increase.timeUnixNano))?.start
                 ?? Date(unixNano: increase.timeUnixNano)
             byBucket[start, default: [:]][increase.app, default: 0] += increase.tokens
+            if let kind = TokenKind(increase.tokenType) {
+                totalByKind[kind, default: 0] += increase.tokens
+                kindByBucket[start, default: [:]][kind, default: 0] += increase.tokens
+            }
         }
 
         self.totalByApp = totalByApp
+        self.totalByKind = totalByKind
         self.total = input + output
         self.input = input
         self.output = output
@@ -96,7 +112,7 @@ public struct TokenUsage: Sendable, Equatable {
         self.cacheRead = cacheRead
         self.tokensByModel = tokensByModel
         self.tokensByAppAndModel = tokensByAppAndModel
-        self.buckets = Self.filledBuckets(byBucket, rangeStart: rangeStart, now: now, component: bucketComponent, calendar: calendar)
+        self.buckets = Self.filledBuckets(byBucket, kinds: kindByBucket, rangeStart: rangeStart, now: now, component: bucketComponent, calendar: calendar)
     }
 
     // MARK: - Counters to increases
@@ -147,6 +163,7 @@ public struct TokenUsage: Sendable, Equatable {
 
     private static func filledBuckets(
         _ byBucket: [Date: [BarApp: Int64]],
+        kinds: [Date: [TokenKind: Int64]],
         rangeStart: Date?,
         now: Date,
         component: Calendar.Component,
@@ -159,7 +176,7 @@ public struct TokenUsage: Sendable, Equatable {
         var buckets: [Bucket] = []
         var cursor = first
         while cursor <= last {
-            buckets.append(Bucket(start: cursor, tokensByApp: byBucket[cursor] ?? [:]))
+            buckets.append(Bucket(start: cursor, tokensByApp: byBucket[cursor] ?? [:], tokensByKind: kinds[cursor] ?? [:]))
             guard let next = calendar.date(byAdding: component, value: 1, to: cursor), next > cursor else {
                 break
             }
