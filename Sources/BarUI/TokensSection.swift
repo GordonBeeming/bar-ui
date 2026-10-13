@@ -1,7 +1,7 @@
 import BarUICore
 import SwiftUI
 
-/// Tokens over time, stacked by Bar App, with the tiles that sum the same
+/// Tokens over time, stacked by kind, with the tiles that sum the same
 /// range. One range control drives both so they can't disagree. The range
 /// belongs to the Overview, which also uses it for the Events list.
 struct TokensSection: View {
@@ -65,7 +65,7 @@ private struct TokensChart: View {
         } else {
             StackedTokensChart(usage: usage, unit: range.bucketComponent)
                 .frame(height: 220)
-                .accessibilityLabel("Tokens over time, stacked by Bar App")
+                .accessibilityLabel("Tokens over time, stacked by cache reads, new input and output")
         }
     }
 }

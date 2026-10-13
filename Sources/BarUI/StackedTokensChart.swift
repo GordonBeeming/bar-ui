@@ -2,7 +2,7 @@ import BarUICore
 import Charts
 import SwiftUI
 
-/// Tokens per bucket, stacked by Bar App in each Bar App's colour. The
+/// Tokens per bucket, stacked by kind (cache reads, new input, output). The
 /// Overview shows it full size with an axis and legend; the Menu Bar Preview
 /// shows it `compact`, as a sparkline.
 struct StackedTokensChart: View {
