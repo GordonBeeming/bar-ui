@@ -21,23 +21,23 @@ public protocol LoginItemRegistering: Sendable {
 
 /// Remembers the person's choice, separately from the login item itself, so
 /// "never chosen" (on by default) differs from "switched off".
-public protocol BackgroundImportChoiceStoring: Sendable {
+public protocol LoginItemChoiceStoring: Sendable {
     var choice: Bool? { get set }
 }
 
-/// The Settings switch for importing in the background: a login item that
-/// keeps the Archive filling while the window is closed.
+/// A Settings switch backed by a login item: Bar UI opening at login, or the
+/// background helper that keeps the Archive filling while the window is closed.
 @MainActor
 @Observable
-public final class BackgroundImportSetting {
+public final class LoginItemSetting {
     public private(set) var isEnabled: Bool
     public private(set) var status: LoginItemStatus
     public private(set) var problem: String?
 
     private let service: any LoginItemRegistering
-    private var store: any BackgroundImportChoiceStoring
+    private var store: any LoginItemChoiceStoring
 
-    public init(service: any LoginItemRegistering, store: any BackgroundImportChoiceStoring) {
+    public init(service: any LoginItemRegistering, store: any LoginItemChoiceStoring) {
         self.service = service
         self.store = store
         self.isEnabled = store.choice ?? true

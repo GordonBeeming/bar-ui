@@ -8,7 +8,8 @@ enum CurrencySetting {
 
 struct SettingsView: View {
     @Environment(PricingCatalog.self) private var pricing
-    let backgroundImport: BackgroundImportSetting
+    let openAtLogin: LoginItemSetting
+    let backgroundImport: LoginItemSetting
     @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
 
     var body: some View {
@@ -19,20 +20,18 @@ struct SettingsView: View {
                 }
             }
             Section {
-                Toggle("Keep importing when Bar UI is closed", isOn: backgroundImportEnabled)
+                Toggle("Open Bar UI at login", isOn: binding(for: openAtLogin))
+                Text("Starts in the menu bar when you log in, without opening the window.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                LoginItemNotes(setting: openAtLogin, approvalText: "Allow Bar UI under Login Items in System Settings so it opens at login.")
+            }
+            Section {
+                Toggle("Keep importing when Bar UI is closed", isOn: binding(for: backgroundImport))
                 Text("A background helper copies new Telemetry into the Archive as it arrives, so the Bar Apps' retention can never delete files before they're imported. It starts when you log in.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                if backgroundImport.status == .requiresApproval {
-                    Label("Allow Bar UI under Login Items in System Settings to start the helper.", systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                if let problem = backgroundImport.problem {
-                    Label(problem, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                LoginItemNotes(setting: backgroundImport, approvalText: "Allow Bar UI under Login Items in System Settings to start the helper.")
             }
             Section {
                 Text("API Cost is what your tokens would have cost at the vendors' public API prices, converted from US dollars. It is not what you were charged.")
@@ -50,10 +49,10 @@ struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var backgroundImportEnabled: Binding<Bool> {
+    private func binding(for setting: LoginItemSetting) -> Binding<Bool> {
         Binding(
-            get: { backgroundImport.isEnabled },
-            set: { backgroundImport.setEnabled($0) }
+            get: { setting.isEnabled },
+            set: { setting.setEnabled($0) }
         )
     }
 
