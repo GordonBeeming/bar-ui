@@ -67,7 +67,13 @@ struct InferredResetsTests {
 
     @Test("A Window that hasn't started, its reset time creeping forward each poll, isn't a reset")
     func notStartedWindow() {
-        let polls = (0..<6).map { Poll(time: 1_000_000 + Int64($0) * 600, resetsAt: Double(1_000_000 + $0 * 600 + 604_800), utilization: 0) }
+        // Typed step by step: the inline arithmetic times out the CI compiler's type checker.
+        var polls: [Poll] = []
+        for step in 0..<6 {
+            let time: Int64 = 1_000_000 + Int64(step) * 600
+            let resetsAt: Double = Double(time) + 604_800
+            polls.append(Poll(time: time, resetsAt: resetsAt, utilization: 0))
+        }
 
         #expect(infer(polls).isEmpty)
     }
