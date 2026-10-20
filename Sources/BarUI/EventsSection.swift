@@ -7,16 +7,35 @@ struct EventsSection: View {
     let events: [OverviewEvent]
     let now: Date
 
+    /// Off by default: a 5-hour session resets several times a day, and those
+    /// rows would bury the weekly resets and everything else.
+    @AppStorage("showSessionResets") private var showSessionResets = false
+
+    private var shown: [OverviewEvent] {
+        showSessionResets ? events : OverviewEvent.hidingShortWindowResets(events)
+    }
+
     var body: some View {
+        let events = shown
         VStack(alignment: .leading, spacing: 12) {
-            Text("Events")
-                .font(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Events")
+                    .font(.headline)
+                Spacer()
+                Toggle("Show session resets", isOn: $showSessionResets)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             if events.isEmpty {
                 ContentUnavailableView(
                     "No events in this range",
                     systemImage: "list.bullet",
-                    description: Text("Resets, Perks and Tracking changes your Bar Apps record show up here.")
+                    description: Text(showSessionResets
+                        ? "Resets, Perks and Tracking changes your Bar Apps record show up here."
+                        : "Resets, Perks and Tracking changes your Bar Apps record show up here. Session resets are hidden.")
                 )
                 .frame(height: 160)
             } else {
