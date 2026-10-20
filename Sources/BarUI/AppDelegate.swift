@@ -8,13 +8,15 @@ import Observation
 @MainActor
 @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private(set) var launchKind: LaunchKind = .byHand
+    /// Nil until launching finishes; the label waits for it before deciding
+    /// whether to open the window.
+    private(set) var launchKind: LaunchKind?
     /// Bumped on every reopen; the label watches it.
     private(set) var reopenRequests = 0
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        // The launch event is only current while launching finishes; read it
-        // before anything else handles it.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // AppKit calls this while handling the open-application event, so that
+        // event is current here; in applicationWillFinishLaunching it isn't yet.
         launchKind = LaunchKind(launchEvent: NSAppleEventManager.shared().currentAppleEvent)
     }
 

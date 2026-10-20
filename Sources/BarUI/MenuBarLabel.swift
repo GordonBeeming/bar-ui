@@ -23,7 +23,11 @@ struct MenuBarLabel: View {
                 // repairs them if they were removed or a choice changed since.
                 openAtLogin.reconcile()
                 backgroundImport.reconcile()
-                if appDelegate.launchKind == .byHand {
+            }
+            // The label can appear before launching finishes, so wait for the
+            // launch kind rather than reading it once.
+            .onChange(of: appDelegate.launchKind, initial: true) { _, kind in
+                if kind == .byHand {
                     showWindow()
                 }
             }

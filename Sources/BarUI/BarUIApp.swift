@@ -47,7 +47,10 @@ struct BarUIApp: App {
         .defaultSize(width: 1440, height: 900)
         // Never opened by a launch on its own: at login Bar UI stays in the
         // menu bar, and a launch by hand opens it from the menu bar label.
+        // Restoration is off too, or a window left open at logout would come
+        // back at the next login despite the suppressed launch.
         .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         MenuBarExtra {
             MenuBarPreviewView(preview: archive.preview, monitor: monitor, archiveFailure: archive.failure)
