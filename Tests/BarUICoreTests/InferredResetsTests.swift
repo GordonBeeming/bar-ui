@@ -158,6 +158,18 @@ struct InferredResetsTests {
         #expect(infer(dropped, limit: unknown).count == 1)
     }
 
+    @Test("First use after a long idle gap isn't a reset, though the floating deadline jumped hours")
+    func firstUseAfterIdleGap() {
+        // Idle overnight at 0%, so each poll's deadline floated five hours ahead; the first
+        // poll after a morning's use reads 10% with a deadline from when use started.
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_018_000, utilization: 0),
+            Poll(time: 1_014_400, resetsAt: 1_030_000, utilization: 10)
+        ]
+
+        #expect(infer(polls, limit: Self.session).isEmpty)
+    }
+
     private static let hourly = LimitDescriptor(id: "hourly", name: "Hourly", windowDurationMinutes: 60, modelID: nil)
 
     @Test("A short Window reset early, its deadline moving only ten minutes, counts when usage falls to zero")

@@ -97,9 +97,10 @@ public enum InferredResets {
     /// between the two polls (the Mac asleep across its reset).
     static func rolledOver(before: Poll, after: Poll, windowMinutes: Int?) -> Bool {
         // A Window nobody has used floats a full Window ahead of every poll, so
-        // after a gap, or once it expires, its reset time jumps like a real
-        // rollover. With no usage either side nothing reset that matters.
-        if before.usage == 0 && after.usage == 0 {
+        // after a gap, once it expires, or when use finally starts, its reset
+        // time jumps like a real rollover. At 0% beforehand there was nothing
+        // to reset, so it never counts.
+        if before.usage == 0 {
             return false
         }
         let then = Double(before.time) / 1_000_000_000
