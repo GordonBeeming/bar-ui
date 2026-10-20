@@ -117,7 +117,7 @@ extension Archive {
         try samples(of: app, limitID: limitID, metric: metric, since: Int64.min)
     }
 
-    private func samples(of app: BarApp, limitID: String, metric: LimitMetric, since floor: Int64) throws -> [ArchivedSample] {
+    func samples(of app: BarApp, limitID: String, metric: LimitMetric, since floor: Int64) throws -> [ArchivedSample] {
         let statement = try prepare("""
             SELECT time_unix_nano, value FROM limit_samples
             WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano >= ?4
@@ -132,9 +132,22 @@ extension Archive {
     }
 
     /// Every reset the Archive holds for the Bar App, by Limit ID, oldest
-    /// first. A Window resets a handful of times a day at most, so the whole
-    /// list stays small.
+    /// first: the ones the Bar App logged, plus rollovers its samples show that
+    /// it never logged. A Window resets a handful of times a day at most, so
+    /// the whole list stays small.
     public func limitResets(of app: BarApp) throws -> [String: [LimitReset]] {
+        var byLimit = try loggedLimitResets(of: app)
+        for descriptor in try limitDescriptors(of: app) {
+            let logged = byLimit[descriptor.id] ?? []
+            let all = try withInferredResets(logged, of: app, limit: descriptor, since: Int64.min)
+            if !all.isEmpty {
+                byLimit[descriptor.id] = all
+            }
+        }
+        return byLimit
+    }
+
+    private func loggedLimitResets(of app: BarApp) throws -> [String: [LimitReset]] {
         let statement = try prepare("""
             SELECT r.limit_id, r.time_unix_nano, r.utilization_last, r.next_resets_at,
                    l.name, l.window_minutes, l.model_id
@@ -171,6 +184,54 @@ extension Archive {
     /// A Limit with nothing in the range still comes back, so it can say so.
     public func limitHistories(of app: BarApp, since: Date?) throws -> [LimitHistory] {
         let floor = since?.unixNano ?? Int64.min
+        let descriptors = try limitDescriptors(of: app)
+
+        let resets = try prepare("""
+            SELECT time_unix_nano, utilization_last, next_resets_at FROM limit_resets
+            WHERE app = ?1 AND limit_id = ?2 AND time_unix_nano >= ?3
+            ORDER BY time_unix_nano
+            """)
+        let latest = try prepare("""
+            SELECT time_unix_nano, value FROM limit_samples
+            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3
+            ORDER BY time_unix_nano DESC LIMIT 1
+            """)
+        var histories: [LimitHistory] = []
+        for descriptor in descriptors {
+            // Read from a Window before the range: the poll before a reset at the
+            // range's start is needed to recover it, and a reset just before the
+            // range bounds the peak the range starts from.
+            let lookback = Self.inferenceFloor(for: floor, limit: descriptor)
+            try resets.bind(.text(app.rawValue), .text(descriptor.id), .integer(lookback))
+            var events: [LimitReset] = []
+            while try resets.step() {
+                events.append(LimitReset(
+                    app: app,
+                    limit: descriptor,
+                    timeUnixNano: resets.int64(at: 0),
+                    utilizationLast: resets.double(at: 1),
+                    nextResetsAt: resets.optionalDouble(at: 2).map { Date(timeIntervalSince1970: $0) }
+                ))
+            }
+            try latest.bind(.text(app.rawValue), .text(descriptor.id), .text(LimitMetric.utilization.rawValue))
+            let latestSample = try latest.step()
+                ? ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
+                : nil
+            let all = try withInferredResets(events, of: app, limit: descriptor, since: lookback)
+            let lastResetBefore = all.last { $0.timeUnixNano < floor }?.timeUnixNano
+            histories.append(LimitHistory(
+                app: app,
+                limit: descriptor,
+                utilization: try samples(of: app, limitID: descriptor.id, metric: .utilization, since: floor),
+                latest: latestSample,
+                resets: all.filter { $0.timeUnixNano >= floor },
+                peakBeforeRange: since == nil ? nil : try peakBefore(floor, of: app, limit: descriptor, lastReset: lastResetBefore)
+            ))
+        }
+        return histories
+    }
+
+    private func limitDescriptors(of app: BarApp) throws -> [LimitDescriptor] {
         let limits = try prepare("""
             SELECT limit_id, name, window_minutes, model_id FROM limits WHERE app = ?1 ORDER BY limit_id
             """)
@@ -187,51 +248,42 @@ extension Archive {
                 modelID: limits.text(at: 3)
             ))
         }
+        return descriptors
+    }
 
-        let resets = try prepare("""
-            SELECT time_unix_nano, utilization_last, next_resets_at FROM limit_resets
-            WHERE app = ?1 AND limit_id = ?2 AND time_unix_nano >= ?3
-            ORDER BY time_unix_nano
-            """)
-        let latest = try prepare("""
-            SELECT time_unix_nano, value FROM limit_samples
-            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3
-            ORDER BY time_unix_nano DESC LIMIT 1
-            """)
-        var histories: [LimitHistory] = []
-        for descriptor in descriptors {
-            try resets.bind(.text(app.rawValue), .text(descriptor.id), .integer(floor))
-            var events: [LimitReset] = []
-            while try resets.step() {
-                events.append(LimitReset(
-                    app: app,
-                    limit: descriptor,
-                    timeUnixNano: resets.int64(at: 0),
-                    utilizationLast: resets.double(at: 1),
-                    nextResetsAt: resets.optionalDouble(at: 2).map { Date(timeIntervalSince1970: $0) }
-                ))
-            }
-            try latest.bind(.text(app.rawValue), .text(descriptor.id), .text(LimitMetric.utilization.rawValue))
-            let latestSample = try latest.step()
-                ? ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
-                : nil
-            histories.append(LimitHistory(
-                app: app,
-                limit: descriptor,
-                utilization: try samples(of: app, limitID: descriptor.id, metric: .utilization, since: floor),
-                latest: latestSample,
-                resets: events,
-                peakBeforeRange: since == nil ? nil : try peakBefore(floor, of: app, limit: descriptor)
-            ))
+    /// One Window (and a day's margin) before `floor`, or everything when the
+    /// Window's length isn't known. The full read is only for a range; an
+    /// all-time read already starts at the beginning.
+    static func inferenceFloor(for floor: Int64, limit: LimitDescriptor) -> Int64 {
+        guard floor != Int64.min, let minutes = limit.windowDurationMinutes else {
+            return Int64.min
         }
-        return histories
+        let reach = (Int64(minutes) * 60 + 86_400) * 1_000_000_000
+        return floor > Int64.min + reach ? floor - reach : Int64.min
+    }
+
+    /// The logged resets (read from `floor` on) with the rollovers recovered
+    /// from the samples from `floor` on that none of them stands for, oldest
+    /// first.
+    private func withInferredResets(
+        _ logged: [LimitReset],
+        of app: BarApp,
+        limit: LimitDescriptor,
+        since floor: Int64
+    ) throws -> [LimitReset] {
+        let detected = try detectedRollovers(of: app, limit: limit).filter { $0.timeUnixNano >= floor }
+        let inferred = InferredResets.unlogged(detected, logged: logged, windowMinutes: limit.windowDurationMinutes)
+        guard !inferred.isEmpty else {
+            return logged
+        }
+        return (logged + inferred).sorted { $0.timeUnixNano < $1.timeUnixNano }
     }
 
     /// How high the Window open at `floor` had got before it. Reads back no
-    /// further than that Window: to its reset, or one Window length when the
-    /// reset wasn't logged. Without either, the Limit's last earlier sample
-    /// stands in for the Window.
-    private func peakBefore(_ floor: Int64, of app: BarApp, limit: LimitDescriptor) throws -> Double? {
+    /// further than that Window: to its reset (logged or recovered from the
+    /// samples, `lastReset`), or one Window length when there's none in reach.
+    /// Without either, the Limit's last earlier sample stands in for the Window.
+    private func peakBefore(_ floor: Int64, of app: BarApp, limit: LimitDescriptor, lastReset: Int64?) throws -> Double? {
         let latest = try prepare("""
             SELECT time_unix_nano, value FROM limit_samples
             WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano < ?4
@@ -243,12 +295,6 @@ extension Archive {
         }
         let lastSample = ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
 
-        let reset = try prepare("""
-            SELECT MAX(time_unix_nano) FROM limit_resets
-            WHERE app = ?1 AND limit_id = ?2 AND time_unix_nano < ?3
-            """)
-        try reset.bind(.text(app.rawValue), .text(limit.id), .integer(floor))
-        let lastReset = try reset.step() ? reset.optionalInt64(at: 0) : nil
         if let lastReset, lastReset > lastSample.timeUnixNano {
             return 0
         }
