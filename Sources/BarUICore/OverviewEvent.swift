@@ -20,6 +20,27 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
     public let title: String
     public let detail: String
     public let date: Date
+    /// The reset Limit's Window length; nil for every other kind of event.
+    public var windowMinutes: Int? = nil
+
+    /// A Window shorter than this resets often enough to drown out the rest
+    /// of the list, so its resets are hidden unless asked for.
+    static let shortWindowMinutes = 24 * 60
+
+    /// A reset of a Window under a day, like Session (5h). A Window of unknown
+    /// length isn't counted, so nothing is hidden on a guess.
+    public var isShortWindowReset: Bool {
+        guard kind == .limitReset, let windowMinutes else {
+            return false
+        }
+        return windowMinutes < Self.shortWindowMinutes
+    }
+
+    /// The events without short-Window resets: the default list, where every
+    /// 5-hour session reset would bury the weekly ones.
+    public static func hidingShortWindowResets(_ events: [OverviewEvent]) -> [OverviewEvent] {
+        events.filter { !$0.isShortWindowReset }
+    }
 
     /// Every event the Archive can tell, newest first. Limits crossing into
     /// running low or near limit aren't logged by the Bar Apps; they come from
@@ -43,7 +64,8 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                     kind: .limitReset,
                     title: "\(reset.limit.name) reset",
                     detail: "\(Int((100 - reset.utilizationLast).rounded()))% unused at reset",
-                    date: Date(unixNano: reset.timeUnixNano)
+                    date: Date(unixNano: reset.timeUnixNano),
+                    windowMinutes: history.limit.windowDurationMinutes
                 ))
             }
             events += crossings(in: history)

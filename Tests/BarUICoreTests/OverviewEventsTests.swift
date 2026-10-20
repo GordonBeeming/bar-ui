@@ -156,4 +156,40 @@ struct OverviewEventsTests {
     func empty() {
         #expect(timeline().isEmpty)
     }
+
+    private func resetHistory(window: Int?, id: String) -> LimitHistory {
+        let limit = LimitDescriptor(id: id, name: id, windowDurationMinutes: window, modelID: nil)
+        let reset = LimitReset(app: .claudeBar, limit: limit, timeUnixNano: Self.t0, utilizationLast: 40, nextResetsAt: nil)
+        return LimitHistory(app: .claudeBar, limit: limit, utilization: [], latest: nil, resets: [reset])
+    }
+
+    @Test("Hiding session resets drops a 5h Window's resets and keeps a weekly one's")
+    func hidesShortWindowResets() {
+        let events = timeline(histories: [resetHistory(window: 300, id: "session"), resetHistory(window: 10_080, id: "weekly")])
+
+        let shown = OverviewEvent.hidingShortWindowResets(events)
+
+        #expect(shown.map(\.title) == ["weekly reset"])
+    }
+
+    @Test("A reset whose Window length isn't known is kept, so nothing is hidden on a guess")
+    func keepsUnknownWindow() {
+        let events = timeline(histories: [resetHistory(window: nil, id: "mystery")])
+
+        #expect(OverviewEvent.hidingShortWindowResets(events).count == 1)
+    }
+
+    @Test("Only resets are hidden: a session Limit running low and Tracking starting stay")
+    func keepsOtherEvents() {
+        let events = timeline(
+            histories: [history(utilization: [10, 80])],
+            trackingStarts: [TrackingStartedEvent(app: .claudeBar, intervalMinutes: 5, timeUnixNano: Self.t0)]
+        )
+
+        let shown = OverviewEvent.hidingShortWindowResets(events)
+
+        #expect(shown.count == events.count)
+        #expect(shown.contains { $0.kind == .runningLow })
+        #expect(shown.contains { $0.kind == .trackingStarted })
+    }
 }
