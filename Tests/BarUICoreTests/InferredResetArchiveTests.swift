@@ -70,6 +70,45 @@ struct InferredResetArchiveTests {
         #expect(history.peakBeforeRange == 0)
     }
 
+    @Test("Rollovers found earlier are kept, and newer polls still add theirs")
+    func laterPollsExtendTheResets() async throws {
+        let fixture = try ImportFixture()
+        let folder = fixture.codexFolder
+        try Data((Self.metricsLine(time: 1_791_867_316, utilization: 6, resetsAt: 1_792_310_768) + "\n" +
+                  Self.metricsLine(time: 1_791_867_609, utilization: 0, resetsAt: 1_792_472_409) + "\n").utf8)
+            .write(to: folder.appendingPathComponent("codexbar-metrics-2026-10-13.jsonl"))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: folder)
+        let first = try await fixture.archive.limitResets(of: .codexBar)
+
+        try Data((Self.metricsLine(time: 1_792_044_489, utilization: 5, resetsAt: 1_792_475_653) + "\n" +
+                  Self.metricsLine(time: 1_792_044_791, utilization: 0, resetsAt: 1_792_649_591) + "\n").utf8)
+            .write(to: folder.appendingPathComponent("codexbar-metrics-2026-10-15.jsonl"))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: folder)
+        let second = try await fixture.archive.limitResets(of: .codexBar)
+
+        #expect(first["codex:10080"]?.count == 1)
+        #expect(second["codex:10080"]?.map(\.timeUnixNano) == [1_791_867_609_000_000_000, 1_792_044_791_000_000_000])
+    }
+
+    @Test("Older samples imported after a read are taken into account, not skipped")
+    func olderSamplesImportedLater() async throws {
+        let fixture = try ImportFixture()
+        let folder = fixture.codexFolder
+        try Data((Self.metricsLine(time: 1_792_044_489, utilization: 5, resetsAt: 1_792_475_653) + "\n" +
+                  Self.metricsLine(time: 1_792_044_791, utilization: 0, resetsAt: 1_792_649_591) + "\n").utf8)
+            .write(to: folder.appendingPathComponent("codexbar-metrics-2026-10-15.jsonl"))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: folder)
+        _ = try await fixture.archive.limitResets(of: .codexBar)
+
+        try Data((Self.metricsLine(time: 1_791_867_316, utilization: 6, resetsAt: 1_792_310_768) + "\n" +
+                  Self.metricsLine(time: 1_791_867_609, utilization: 0, resetsAt: 1_792_472_409) + "\n").utf8)
+            .write(to: folder.appendingPathComponent("codexbar-metrics-2026-10-13.jsonl"))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: folder)
+        let after = try await fixture.archive.limitResets(of: .codexBar)
+
+        #expect(after["codex:10080"]?.map(\.timeUnixNano) == [1_791_867_609_000_000_000, 1_792_044_791_000_000_000])
+    }
+
     @Test("A ClaudeBar reset that was logged isn't added again from its samples")
     func loggedResetsStayUnchanged() async throws {
         let fixture = try ImportFixture()

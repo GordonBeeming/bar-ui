@@ -117,7 +117,7 @@ extension Archive {
         try samples(of: app, limitID: limitID, metric: metric, since: Int64.min)
     }
 
-    private func samples(of app: BarApp, limitID: String, metric: LimitMetric, since floor: Int64) throws -> [ArchivedSample] {
+    func samples(of app: BarApp, limitID: String, metric: LimitMetric, since floor: Int64) throws -> [ArchivedSample] {
         let statement = try prepare("""
             SELECT time_unix_nano, value FROM limit_samples
             WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano >= ?4
@@ -139,7 +139,7 @@ extension Archive {
         var byLimit = try loggedLimitResets(of: app)
         for descriptor in try limitDescriptors(of: app) {
             let logged = byLimit[descriptor.id] ?? []
-            let all = try withInferredResets(logged, of: app, limit: descriptor, since: Int64.min, utilization: nil)
+            let all = try withInferredResets(logged, of: app, limit: descriptor, since: Int64.min)
             if !all.isEmpty {
                 byLimit[descriptor.id] = all
             }
@@ -217,7 +217,7 @@ extension Archive {
             let latestSample = try latest.step()
                 ? ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
                 : nil
-            let all = try withInferredResets(events, of: app, limit: descriptor, since: lookback, utilization: nil)
+            let all = try withInferredResets(events, of: app, limit: descriptor, since: lookback)
             let lastResetBefore = all.last { $0.timeUnixNano < floor }?.timeUnixNano
             histories.append(LimitHistory(
                 app: app,
@@ -262,23 +262,17 @@ extension Archive {
         return floor > Int64.min + reach ? floor - reach : Int64.min
     }
 
-    /// The logged resets with the rollovers recovered from the samples from
-    /// `floor` on, oldest first. `utilization` is passed in when the caller has
-    /// already read it, so it isn't read twice.
+    /// The logged resets (read from `floor` on) with the rollovers recovered
+    /// from the samples from `floor` on that none of them stands for, oldest
+    /// first.
     private func withInferredResets(
         _ logged: [LimitReset],
         of app: BarApp,
         limit: LimitDescriptor,
-        since floor: Int64,
-        utilization: [ArchivedSample]?
+        since floor: Int64
     ) throws -> [LimitReset] {
-        let inferred = InferredResets.rollovers(
-            app: app,
-            limit: limit,
-            resetsAt: try samples(of: app, limitID: limit.id, metric: .resetsAt, since: floor),
-            utilization: try utilization ?? samples(of: app, limitID: limit.id, metric: .utilization, since: floor),
-            logged: logged
-        )
+        let detected = try detectedRollovers(of: app, limit: limit).filter { $0.timeUnixNano >= floor }
+        let inferred = InferredResets.unlogged(detected, logged: logged, windowMinutes: limit.windowDurationMinutes)
         guard !inferred.isEmpty else {
             return logged
         }

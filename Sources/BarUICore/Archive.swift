@@ -12,6 +12,9 @@ public actor Archive {
 
     private let connection: Connection
     private var database: OpaquePointer { connection.handle }
+    /// Rollovers detected in each Limit's samples so far, by `app/limit`, so a
+    /// read only scans polls newer than the last one it saw.
+    var rolloverCache: [String: DetectedRollovers] = [:]
 
     public init(url: URL) throws {
         try FileManager.default.createDirectory(

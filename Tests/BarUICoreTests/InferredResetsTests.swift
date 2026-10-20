@@ -158,6 +158,52 @@ struct InferredResetsTests {
         #expect(infer(dropped, limit: unknown).count == 1)
     }
 
+    private static let hourly = LimitDescriptor(id: "hourly", name: "Hourly", windowDurationMinutes: 60, modelID: nil)
+
+    @Test("A short Window reset early, its deadline moving only ten minutes, counts when usage falls to zero")
+    func shortWindowEarlyReset() {
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_003_000, utilization: 80),
+            Poll(time: 1_000_600, resetsAt: 1_003_600, utilization: 0)
+        ]
+
+        #expect(infer(polls, limit: Self.hourly).count == 1)
+    }
+
+    @Test("A deadline already past at the earlier poll isn't a reset at the later one")
+    func staleDeadlineCorrectedLater() {
+        // The tool kept reporting the old deadline for one poll after it passed, then corrected
+        // it; the reset happened before the first of these polls, not between them.
+        let polls = [
+            Poll(time: 1_010_000, resetsAt: 1_003_600, utilization: 2),
+            Poll(time: 1_010_300, resetsAt: 1_021_600, utilization: 3)
+        ]
+
+        #expect(infer(polls, limit: Self.session).isEmpty)
+    }
+
+    @Test("Without a Window length, usage jitter alongside a corrected reset time isn't a reset")
+    func unknownWindowJitter() {
+        let unknown = LimitDescriptor(id: "mystery", name: "Mystery", windowDurationMinutes: nil, modelID: nil)
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_100_000, utilization: 50),
+            Poll(time: 1_000_300, resetsAt: 1_200_000, utilization: 49)
+        ]
+
+        #expect(infer(polls, limit: unknown).isEmpty)
+    }
+
+    @Test("An hourly rollover an hour after a logged one is its own reset, not that one again")
+    func consecutiveHourlyResets() {
+        let polls = [
+            Poll(time: 1_003_500, resetsAt: 1_003_600, utilization: 70),
+            Poll(time: 1_003_700, resetsAt: 1_007_300, utilization: 0)
+        ]
+        let logged = LimitReset(app: .codexBar, limit: Self.hourly, timeUnixNano: 1_000_100 * Self.second, utilizationLast: 60, nextResetsAt: nil)
+
+        #expect(infer(polls, limit: Self.hourly, logged: [logged]).count == 1)
+    }
+
     @Test("Samples without a matching reset time or utilisation are skipped, not guessed")
     func unmatchedSamples() {
         let resets = InferredResets.rollovers(
