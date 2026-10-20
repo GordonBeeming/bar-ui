@@ -35,6 +35,41 @@ struct InferredResetArchiveTests {
         #expect(all["codex:10080"]?.map(\.timeUnixNano) == [1_791_867_609_000_000_000])
     }
 
+    private func importLines(_ lines: [String], into fixture: ImportFixture) async throws {
+        try Data((lines.joined(separator: "\n") + "\n").utf8)
+            .write(to: fixture.codexFolder.appendingPathComponent("codexbar-metrics-2026-10-13.jsonl"))
+        _ = try await fixture.importer.importMetrics(of: .codexBar, from: fixture.codexFolder)
+    }
+
+    @Test("A range starting between the last poll before a reset and the reset still includes it")
+    func resetJustInsideTheRange() async throws {
+        let fixture = try ImportFixture()
+        try await importLines([
+            Self.metricsLine(time: 1_791_867_316, utilization: 6, resetsAt: 1_792_310_768),
+            Self.metricsLine(time: 1_791_867_609, utilization: 0, resetsAt: 1_792_472_409)
+        ], into: fixture)
+
+        let since = Date(timeIntervalSince1970: 1_791_867_500)
+        let history = try #require(try await fixture.archive.limitHistories(of: .codexBar, since: since).first)
+
+        #expect(history.resets.map(\.timeUnixNano) == [1_791_867_609_000_000_000])
+    }
+
+    @Test("A recovered reset before the range starts the Window over, so its old peak doesn't carry in")
+    func recoveredResetBoundsThePeakBeforeTheRange() async throws {
+        let fixture = try ImportFixture()
+        try await importLines([
+            Self.metricsLine(time: 1_791_800_000, utilization: 85, resetsAt: 1_792_310_768),
+            Self.metricsLine(time: 1_791_867_609, utilization: 0, resetsAt: 1_792_472_409),
+            Self.metricsLine(time: 1_791_900_000, utilization: 80, resetsAt: 1_792_472_409)
+        ], into: fixture)
+
+        let since = Date(timeIntervalSince1970: 1_791_880_000)
+        let history = try #require(try await fixture.archive.limitHistories(of: .codexBar, since: since).first)
+
+        #expect(history.peakBeforeRange == 0)
+    }
+
     @Test("A ClaudeBar reset that was logged isn't added again from its samples")
     func loggedResetsStayUnchanged() async throws {
         let fixture = try ImportFixture()

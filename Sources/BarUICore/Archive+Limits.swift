@@ -198,7 +198,11 @@ extension Archive {
             """)
         var histories: [LimitHistory] = []
         for descriptor in descriptors {
-            try resets.bind(.text(app.rawValue), .text(descriptor.id), .integer(floor))
+            // Read from a Window before the range: the poll before a reset at the
+            // range's start is needed to recover it, and a reset just before the
+            // range bounds the peak the range starts from.
+            let lookback = Self.inferenceFloor(for: floor, limit: descriptor)
+            try resets.bind(.text(app.rawValue), .text(descriptor.id), .integer(lookback))
             var events: [LimitReset] = []
             while try resets.step() {
                 events.append(LimitReset(
@@ -213,14 +217,15 @@ extension Archive {
             let latestSample = try latest.step()
                 ? ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
                 : nil
-            let utilization = try samples(of: app, limitID: descriptor.id, metric: .utilization, since: floor)
+            let all = try withInferredResets(events, of: app, limit: descriptor, since: lookback, utilization: nil)
+            let lastResetBefore = all.last { $0.timeUnixNano < floor }?.timeUnixNano
             histories.append(LimitHistory(
                 app: app,
                 limit: descriptor,
-                utilization: utilization,
+                utilization: try samples(of: app, limitID: descriptor.id, metric: .utilization, since: floor),
                 latest: latestSample,
-                resets: try withInferredResets(events, of: app, limit: descriptor, since: floor, utilization: utilization),
-                peakBeforeRange: since == nil ? nil : try peakBefore(floor, of: app, limit: descriptor)
+                resets: all.filter { $0.timeUnixNano >= floor },
+                peakBeforeRange: since == nil ? nil : try peakBefore(floor, of: app, limit: descriptor, lastReset: lastResetBefore)
             ))
         }
         return histories
@@ -244,6 +249,17 @@ extension Archive {
             ))
         }
         return descriptors
+    }
+
+    /// One Window (and a day's margin) before `floor`, or everything when the
+    /// Window's length isn't known. The full read is only for a range; an
+    /// all-time read already starts at the beginning.
+    static func inferenceFloor(for floor: Int64, limit: LimitDescriptor) -> Int64 {
+        guard floor != Int64.min, let minutes = limit.windowDurationMinutes else {
+            return Int64.min
+        }
+        let reach = (Int64(minutes) * 60 + 86_400) * 1_000_000_000
+        return floor > Int64.min + reach ? floor - reach : Int64.min
     }
 
     /// The logged resets with the rollovers recovered from the samples from
@@ -270,10 +286,10 @@ extension Archive {
     }
 
     /// How high the Window open at `floor` had got before it. Reads back no
-    /// further than that Window: to its reset, or one Window length when the
-    /// reset wasn't logged. Without either, the Limit's last earlier sample
-    /// stands in for the Window.
-    private func peakBefore(_ floor: Int64, of app: BarApp, limit: LimitDescriptor) throws -> Double? {
+    /// further than that Window: to its reset (logged or recovered from the
+    /// samples, `lastReset`), or one Window length when there's none in reach.
+    /// Without either, the Limit's last earlier sample stands in for the Window.
+    private func peakBefore(_ floor: Int64, of app: BarApp, limit: LimitDescriptor, lastReset: Int64?) throws -> Double? {
         let latest = try prepare("""
             SELECT time_unix_nano, value FROM limit_samples
             WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano < ?4
@@ -285,12 +301,6 @@ extension Archive {
         }
         let lastSample = ArchivedSample(timeUnixNano: latest.int64(at: 0), value: latest.double(at: 1))
 
-        let reset = try prepare("""
-            SELECT MAX(time_unix_nano) FROM limit_resets
-            WHERE app = ?1 AND limit_id = ?2 AND time_unix_nano < ?3
-            """)
-        try reset.bind(.text(app.rawValue), .text(limit.id), .integer(floor))
-        let lastReset = try reset.step() ? reset.optionalInt64(at: 0) : nil
         if let lastReset, lastReset > lastSample.timeUnixNano {
             return 0
         }

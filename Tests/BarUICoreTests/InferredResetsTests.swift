@@ -111,6 +111,53 @@ struct InferredResetsTests {
         #expect(infer(polls).count == 1)
     }
 
+    @Test("An unused Window that expired isn't a reset: there was nothing to reset")
+    func unusedExpiredWindow() {
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_003_600, utilization: 0),
+            Poll(time: 1_010_000, resetsAt: 1_021_600, utilization: 0)
+        ]
+
+        #expect(infer(polls, limit: Self.session).isEmpty)
+    }
+
+    @Test("An unused Window that hasn't started, seen across a gap of half a Window or more, isn't a reset")
+    func floatingWindowAcrossALongGap() {
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_018_000, utilization: 0),
+            Poll(time: 1_010_800, resetsAt: 1_028_800, utilization: 0)
+        ]
+
+        #expect(infer(polls, limit: Self.session).isEmpty)
+    }
+
+    @Test("A short Window's full rollover counts even though its reset time moved less than an hour")
+    func shortWindowRollover() {
+        let hourly = LimitDescriptor(id: "hourly", name: "Hourly", windowDurationMinutes: 60, modelID: nil)
+        let polls = [
+            Poll(time: 1_000_000, resetsAt: 1_000_300, utilization: 80),
+            Poll(time: 1_000_600, resetsAt: 1_003_900, utilization: 0)
+        ]
+
+        #expect(infer(polls, limit: hourly).count == 1)
+    }
+
+    @Test("A Limit with no Window length needs usage to go down before a jump counts")
+    func unknownWindowNeedsUsageEvidence() {
+        let unknown = LimitDescriptor(id: "mystery", name: "Mystery", windowDurationMinutes: nil, modelID: nil)
+        let steady = [
+            Poll(time: 1_000_000, resetsAt: 1_100_000, utilization: 5),
+            Poll(time: 1_000_300, resetsAt: 1_200_000, utilization: 5)
+        ]
+        let dropped = [
+            Poll(time: 1_000_000, resetsAt: 1_100_000, utilization: 50),
+            Poll(time: 1_000_300, resetsAt: 1_200_000, utilization: 0)
+        ]
+
+        #expect(infer(steady, limit: unknown).isEmpty)
+        #expect(infer(dropped, limit: unknown).count == 1)
+    }
+
     @Test("Samples without a matching reset time or utilisation are skipped, not guessed")
     func unmatchedSamples() {
         let resets = InferredResets.rollovers(

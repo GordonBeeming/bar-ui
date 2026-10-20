@@ -64,21 +64,34 @@ public enum InferredResets {
         newResetsAt: Double, newUsage: Double,
         now: Double, windowMinutes: Int?
     ) -> Bool {
+        // A Window nobody has used floats a full Window ahead of every poll, so
+        // after a gap, or once it expires, its reset time jumps like a real
+        // rollover. With no usage either side nothing reset that matters.
+        if oldUsage == 0 && newUsage == 0 {
+            return false
+        }
         let jump = newResetsAt - oldResetsAt
+        guard let windowMinutes else {
+            // Without a Window length, only usage going down says a jump was
+            // a reset rather than a reset time being corrected.
+            return jump > jumpTolerance && newUsage < oldUsage
+        }
+        let window = Double(windowMinutes) * 60
+        // A full rollover counts whatever the Window's length, so a short
+        // Window isn't held to the hour of drift tolerance.
+        if jump >= window / 2 {
+            return true
+        }
         guard jump > jumpTolerance else {
             return false
         }
-        guard let windowMinutes else {
-            return true
-        }
-        let window = Double(windowMinutes) * 60
-        if jump >= window / 2 || oldResetsAt <= now {
+        if oldResetsAt <= now {
             return true
         }
         if (oldUsage > 0 && newUsage == 0) || (oldUsage - newUsage > usageDrop && newUsage < usageFloor) {
             return true
         }
-        // A Window not started yet also reads as a full Window ahead; usage
+        // A full Window ahead alone could still be a floating Window; usage
         // going down is what tells a real reset apart.
         return newUsage < oldUsage && abs(newResetsAt - now - window) <= jumpTolerance
     }
