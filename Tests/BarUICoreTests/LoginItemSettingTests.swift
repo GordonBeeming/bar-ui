@@ -2,13 +2,13 @@ import Foundation
 import Testing
 @testable import BarUICore
 
-@Suite("Background import setting")
+@Suite("Login item setting")
 @MainActor
-struct BackgroundImportSettingTests {
+struct LoginItemSettingTests {
     @Test("On a first launch the login item gets registered, because the switch is on by default")
     func registersByDefault() {
         let service = FakeLoginItem()
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
 
@@ -21,7 +21,7 @@ struct BackgroundImportSettingTests {
     func switchingOffUnregisters() {
         let service = FakeLoginItem()
         let store = FakeChoiceStore()
-        let setting = BackgroundImportSetting(service: service, store: store)
+        let setting = LoginItemSetting(service: service, store: store)
         setting.reconcile()
 
         setting.setEnabled(false)
@@ -30,7 +30,7 @@ struct BackgroundImportSettingTests {
         #expect(!setting.isEnabled)
         #expect(store.choice == false)
 
-        let relaunched = BackgroundImportSetting(service: service, store: store)
+        let relaunched = LoginItemSetting(service: service, store: store)
         relaunched.reconcile()
         #expect(service.status == .notRegistered)
         #expect(!relaunched.isEnabled)
@@ -39,7 +39,7 @@ struct BackgroundImportSettingTests {
     @Test("Turning the switch back on registers again")
     func switchingBackOn() {
         let service = FakeLoginItem()
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
         setting.setEnabled(false)
 
         setting.setEnabled(true)
@@ -54,7 +54,7 @@ struct BackgroundImportSettingTests {
         service.status = .enabled
         let store = FakeChoiceStore()
         store.choice = false
-        let setting = BackgroundImportSetting(service: service, store: store)
+        let setting = LoginItemSetting(service: service, store: store)
 
         setting.reconcile()
 
@@ -64,7 +64,7 @@ struct BackgroundImportSettingTests {
     @Test("Reconciling twice registers once")
     func reconcileIsIdempotent() {
         let service = FakeLoginItem()
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
         setting.reconcile()
@@ -76,7 +76,7 @@ struct BackgroundImportSettingTests {
     func registrationFailure() {
         let service = FakeLoginItem()
         service.registerError = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
 
@@ -89,7 +89,7 @@ struct BackgroundImportSettingTests {
         let service = FakeLoginItem()
         service.status = .enabled
         service.unregisterError = NSError(domain: "test", code: 2, userInfo: [NSLocalizedDescriptionKey: "Busy"])
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.setEnabled(false)
 
@@ -101,7 +101,7 @@ struct BackgroundImportSettingTests {
     func requiresApprovalLeftAlone() {
         let service = FakeLoginItem()
         service.status = .requiresApproval
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
 
@@ -113,7 +113,7 @@ struct BackgroundImportSettingTests {
     func helperMissing() {
         let service = FakeLoginItem()
         service.status = .notFound
-        let setting = BackgroundImportSetting(service: service, store: FakeChoiceStore())
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
 
@@ -146,6 +146,6 @@ final class FakeLoginItem: LoginItemRegistering, @unchecked Sendable {
     }
 }
 
-final class FakeChoiceStore: BackgroundImportChoiceStoring, @unchecked Sendable {
+final class FakeChoiceStore: LoginItemChoiceStoring, @unchecked Sendable {
     var choice: Bool?
 }

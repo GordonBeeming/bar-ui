@@ -1,13 +1,26 @@
 import BarUICore
 import ServiceManagement
 
-/// The background helper, registered as a login item through SMAppService.
-/// The helper app ships inside this app's bundle (see the Makefile).
+/// A login item through SMAppService: Bar UI itself, or the background helper
+/// that ships inside this app's bundle (see the Makefile).
 struct LoginItemService: LoginItemRegistering {
     static let helperIdentifier = "com.gordonbeeming.BarUI.Helper"
 
+    /// Bar UI opening at login, in the menu bar.
+    static let app = LoginItemService { .mainApp }
+    /// The helper that keeps importing while Bar UI is closed.
+    static let helper = LoginItemService { .loginItem(identifier: helperIdentifier) }
+
+    /// Made on each use rather than stored: SMAppService isn't Sendable, and
+    /// it's a cheap handle onto launchd's record, not state of its own.
+    private let makeService: @Sendable () -> SMAppService
+
+    private init(_ makeService: @escaping @Sendable () -> SMAppService) {
+        self.makeService = makeService
+    }
+
     private var service: SMAppService {
-        SMAppService.loginItem(identifier: Self.helperIdentifier)
+        makeService()
     }
 
     var status: LoginItemStatus {

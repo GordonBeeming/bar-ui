@@ -12,7 +12,7 @@ struct BarUIApp: App {
 
     /// Prices are re-checked hourly while the app stays open; the feeds only
     /// download when their cached copy is more than a day old.
-    private static let pricingCheckInterval: Duration = .seconds(3_600)
+    static let pricingCheckInterval: Duration = .seconds(3_600)
 
     /// Opened once for the app: every window shares one connection, and the
     /// shared overview skips a refresh while another window's is running.
@@ -23,7 +23,15 @@ struct BarUIApp: App {
         homeDirectory: ContentView.home
     ))
     @State private var pricing = PricingCatalog(cacheDirectory: Self.pricingCacheDirectory())
-    @State private var backgroundImport = BackgroundImportSetting(service: LoginItemService(), store: UserDefaultsChoiceStore())
+    @State private var openAtLogin = LoginItemSetting(
+        service: LoginItemService.app,
+        store: UserDefaultsChoiceStore(key: UserDefaultsChoiceStore.openAtLoginKey)
+    )
+    @State private var backgroundImport = LoginItemSetting(
+        service: LoginItemService.helper,
+        store: UserDefaultsChoiceStore(key: UserDefaultsChoiceStore.backgroundImportKey)
+    )
+    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
 
     var body: some Scene {
         // No preferredColorScheme anywhere: the window has to follow the Mac's
@@ -35,43 +43,34 @@ struct BarUIApp: App {
             ContentView(monitor: monitor, archive: archive)
                 .frame(minWidth: 900, minHeight: 600)
                 .environment(pricing)
-                .task {
-                    // Registers the helper the first time the app opens, and
-                    // repairs it if it was removed or the choice changed since.
-                    backgroundImport.reconcile()
-                }
-                .task {
-                    while !Task.isCancelled {
-                        await pricing.refresh()
-                        do {
-                            try await Task.sleep(for: Self.pricingCheckInterval)
-                        } catch {
-                            // Cancelled with the window; stop checking for it.
-                            return
-                        }
-                    }
-                }
         }
         .defaultSize(width: 1440, height: 900)
+        // Never opened by a launch on its own: at login Bar UI stays in the
+        // menu bar, and a launch by hand opens it from the menu bar label.
+        .defaultLaunchBehavior(.suppressed)
 
         MenuBarExtra {
             MenuBarPreviewView(preview: archive.preview, monitor: monitor, archiveFailure: archive.failure)
                 .environment(pricing)
         } label: {
-            Image(nsImage: MenuBarIcon.image)
-                .accessibilityLabel("Bar UI")
+            MenuBarLabel(
+                appDelegate: appDelegate,
+                openAtLogin: openAtLogin,
+                backgroundImport: backgroundImport,
+                pricing: pricing
+            )
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(backgroundImport: backgroundImport)
+            SettingsView(openAtLogin: openAtLogin, backgroundImport: backgroundImport)
                 .environment(pricing)
         }
     }
 
     /// Caches rather than Application Support: both feeds can be downloaded
     /// again, unlike the Archive.
-    private static func pricingCacheDirectory() -> URL? {
+    static func pricingCacheDirectory() -> URL? {
         do {
             return try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                 .appendingPathComponent("com.gordonbeeming.BarUI", isDirectory: true)
