@@ -7,7 +7,8 @@ public enum LoginItemStatus: Sendable, Equatable {
     /// Registered, but macOS is waiting for the person to allow it in System
     /// Settings, so it won't run yet.
     case requiresApproval
-    /// The helper isn't inside this build, for example when run from `swift run`.
+    /// macOS has no record of the item: never registered yet, or the helper
+    /// isn't inside this build (for example when run from `swift run`).
     case notFound
 }
 
@@ -59,14 +60,17 @@ public final class LoginItemSetting {
     private func apply() {
         do {
             switch (isEnabled, service.status) {
-            case (true, .notRegistered):
+            // macOS reports an item it has never registered as not found,
+            // not only a helper missing from the bundle, so not found gets a
+            // register too. A truly missing helper makes register throw, and
+            // Settings shows that instead of staying silently unregistered.
+            case (true, .notRegistered), (true, .notFound):
                 try service.register()
             case (false, .enabled), (false, .requiresApproval):
                 try service.unregister()
             default:
-                // Already as wanted, or nothing this code can do: approval
-                // is the person's to give in System Settings, and a missing
-                // helper only a rebuild fixes.
+                // Already as wanted, or approval that's the person's to give
+                // in System Settings.
                 break
             }
             problem = nil

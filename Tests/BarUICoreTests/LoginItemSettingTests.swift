@@ -109,17 +109,50 @@ struct LoginItemSettingTests {
         #expect(setting.status == .requiresApproval)
     }
 
-    @Test("A build without the helper inside reports it and does not try to register")
-    func helperMissing() {
+    @Test("An item macOS has no record of yet gets registered, since that's how a never-registered item reads")
+    func notFoundRegisters() {
         let service = FakeLoginItem()
         service.status = .notFound
         let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
 
         setting.reconcile()
 
-        #expect(service.registerCalls == 0)
-        #expect(setting.status == .notFound)
+        #expect(service.registerCalls == 1)
+        #expect(setting.status == .enabled)
+        #expect(setting.problem == nil)
     }
+
+    @Test("A build without the helper inside fails to register, and Settings shows why")
+    func helperMissing() {
+        let service = FakeLoginItem()
+        service.status = .notFound
+        service.registerError = FakeLoginItemError.missing
+        let setting = LoginItemSetting(service: service, store: FakeChoiceStore())
+
+        setting.reconcile()
+
+        #expect(service.registerCalls == 1)
+        #expect(setting.status == .notFound)
+        #expect(setting.problem != nil)
+    }
+
+    @Test("Switched off with no record at all, there's nothing to remove")
+    func notFoundWhileOffDoesNothing() {
+        let service = FakeLoginItem()
+        service.status = .notFound
+        let store = FakeChoiceStore()
+        store.choice = false
+        let setting = LoginItemSetting(service: service, store: store)
+
+        setting.reconcile()
+
+        #expect(service.registerCalls == 0)
+        #expect(service.unregisterCalls == 0)
+    }
+}
+
+enum FakeLoginItemError: Error {
+    case missing
 }
 
 final class FakeLoginItem: LoginItemRegistering, @unchecked Sendable {
