@@ -175,15 +175,13 @@ private struct LimitHistoryRowView: View {
         Chart {
             runMarks
             bridgeMarks
+            // Unlabelled: a Session Window resets several times a day, and a
+            // label per marker piled up into unreadable text across a week.
+            // Hovering near a reset shows how much went unused.
             ForEach(row.resetMarkers, id: \.date) { marker in
                 RuleMark(x: .value("Reset", marker.date))
                     .foregroundStyle(.secondary.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        Text("\(Int(marker.unusedPercent.rounded()))% unused")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
             }
             if let hover, let extent = dataExtent {
                 HoverRule(date: hover.point.date, extent: extent) {
