@@ -1,10 +1,12 @@
 import BarUICore
 import SwiftUI
 
-/// What happened to the Bar Apps' Limits, Perks and Tracking in the range the
-/// Overview is showing, newest first.
-struct EventsSection: View {
+/// The Bar Apps' resets and Perk changes in the range the Overview is showing:
+/// a chart of how much each Window left unused, then the list, newest first,
+/// which also carries Limits running low and Tracking changes.
+struct ResetsAndPerksSection: View {
     let events: [OverviewEvent]
+    let range: TimeRange
     let now: Date
 
     /// Off by default: a 5-hour session resets several times a day, and those
@@ -17,9 +19,10 @@ struct EventsSection: View {
 
     var body: some View {
         let events = shown
+        let chart = ResetsChartData(events: events, range: range, now: now)
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Events")
+                Text("Resets & Perks")
                     .font(.headline)
                 Spacer()
                 Toggle("Show session resets", isOn: $showSessionResets)
@@ -29,10 +32,24 @@ struct EventsSection: View {
                     .foregroundStyle(.secondary)
             }
 
+            if !chart.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ResetsChartLegend()
+                    ResetsChart(data: chart, unit: range.bucketComponent)
+                        .frame(height: 220)
+                }
+                .padding(18)
+                .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.separator, lineWidth: 1)
+                }
+            }
+
             if events.isEmpty {
                 ContentUnavailableView(
-                    "No events in this range",
-                    systemImage: "list.bullet",
+                    "No resets or Perks in this range",
+                    systemImage: "chart.bar",
                     description: Text(showSessionResets
                         ? "Resets, Perks and Tracking changes your Bar Apps record show up here."
                         : "Resets, Perks and Tracking changes your Bar Apps record show up here. Session resets are hidden.")

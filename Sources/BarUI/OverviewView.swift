@@ -57,7 +57,7 @@ struct OverviewView: View {
                     }
                     LimitsStrip(cards: cards)
                     TokensSection(overview: overview, now: now, range: $range)
-                    EventsSection(events: overview.events(range: range, now: now), now: now)
+                    ResetsAndPerksSection(events: overview.events(range: range, now: now), range: range, now: now)
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 16)

@@ -4,7 +4,7 @@ public enum ArchivePage: String, CaseIterable, Sendable, Hashable {
 
     public var title: String {
         switch self {
-        case .events: "Events"
+        case .events: "Resets & Perks"
         case .imports: "Imports"
         }
     }
