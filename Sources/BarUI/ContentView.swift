@@ -126,7 +126,9 @@ struct ContentView: View {
             OverviewView(overview: archive.overview, archiveFailure: archive.failure)
         case .barApp(let app):
             BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote, skipped: archive.overview?.skippedRecords[app], history: archive.history, overview: archive.overview)
-        case .archive:
+        case .archive(.events):
+            ResetsAndPerksPageView(overview: archive.overview, archiveFailure: archive.failure)
+        case .archive(.imports):
             PlaceholderPageView(item: item)
         }
     }

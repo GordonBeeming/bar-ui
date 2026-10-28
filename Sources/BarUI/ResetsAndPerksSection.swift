@@ -10,6 +10,9 @@ struct ResetsAndPerksSection: View {
     let now: Date
     /// The Tokens chart's span, so this chart's days sit under the same days.
     let tokensDomain: ClosedRange<Date>?
+    /// The page's own range control; nil on the Overview, where the Tokens
+    /// chart's control drives both sections.
+    var rangeSelection: Binding<TimeRange>?
 
     /// Off by default: a 5-hour session resets several times a day, and those
     /// rows would bury the weekly resets and everything else.
@@ -27,6 +30,16 @@ struct ResetsAndPerksSection: View {
                 Text("Resets & Perks")
                     .font(.headline)
                 Spacer()
+                if let rangeSelection {
+                    Picker("Range", selection: rangeSelection) {
+                        ForEach(TimeRange.allCases) { range in
+                            Text(range.label).tag(range)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
                 Toggle("Show session resets", isOn: $showSessionResets)
                     .toggleStyle(.switch)
                     .controlSize(.small)
