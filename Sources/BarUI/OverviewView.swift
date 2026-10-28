@@ -71,7 +71,7 @@ struct OverviewView: View {
     }
 }
 
-private struct ProblemLabel: View {
+struct ProblemLabel: View {
     let problem: String
 
     var body: some View {

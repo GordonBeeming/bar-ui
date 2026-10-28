@@ -19,13 +19,20 @@ struct ResetsAndPerksPageView: View {
             if let overview {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     ScrollView {
-                        ResetsAndPerksSection(
-                            events: overview.events(range: range, now: context.date),
-                            range: range,
-                            now: context.date,
-                            tokensDomain: nil,
-                            rangeSelection: $range
-                        )
+                        VStack(alignment: .leading, spacing: 20) {
+                            // A failed read keeps the last events, so without
+                            // this a short history would pass for the whole Archive.
+                            if let problem = overview.problem {
+                                ProblemLabel(problem: problem)
+                            }
+                            ResetsAndPerksSection(
+                                events: overview.events(range: range, now: context.date),
+                                range: range,
+                                now: context.date,
+                                tokensDomain: nil,
+                                rangeSelection: $range
+                            )
+                        }
                         .padding(.horizontal, 32)
                         .padding(.vertical, 16)
                     }
