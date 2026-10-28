@@ -24,7 +24,7 @@ struct SidebarTests {
     func itemTitles() {
         let titles = SidebarSection.all.flatMap(\.items).map(\.title)
 
-        #expect(titles == ["Overview", "ClaudeBar", "CodexBar", "Events", "Imports"])
+        #expect(titles == ["Overview", "ClaudeBar", "CodexBar", "Resets & Perks", "Imports"])
     }
 
     @Test("Item ids are unique and stable")

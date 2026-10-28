@@ -123,12 +123,26 @@ private struct LimitHistoryRowView: View {
         pointerDate.flatMap { row.hover(at: $0) }
     }
 
+    /// A reset inside a Tracking gap has no sample to hover, so near its
+    /// marker the readout shows the reset on its own.
+    private var gapReset: LimitHistoryRow.ResetMarker? {
+        guard hover == nil, let pointerDate, let extent = dataExtent else {
+            return nil
+        }
+        let reach = extent.upperBound.timeIntervalSince(extent.lowerBound) * 0.02
+        return row.resetMarker(near: pointerDate, within: reach)
+    }
+
     private var bridgedDates: Set<Date> {
         Set(row.bridges.flatMap { $0.map(\.date) })
     }
 
+    /// Covers reset markers too: a Limit can log resets in a range with no
+    /// samples, and those markers still need an axis and a hover readout.
     private var dataExtent: ClosedRange<Date>? {
-        guard let first = row.segments.first?.first?.date, let last = row.segments.last?.last?.date else {
+        let dates = [row.segments.first?.first?.date, row.segments.last?.last?.date].compactMap { $0 }
+            + row.resetMarkers.map(\.date)
+        guard let first = dates.min(), let last = dates.max() else {
             return nil
         }
         return first...last
@@ -175,15 +189,13 @@ private struct LimitHistoryRowView: View {
         Chart {
             runMarks
             bridgeMarks
+            // Unlabelled: a Session Window resets several times a day, and a
+            // label per marker piled up into unreadable text across a week.
+            // Hovering near a reset shows how much went unused.
             ForEach(row.resetMarkers, id: \.date) { marker in
                 RuleMark(x: .value("Reset", marker.date))
                     .foregroundStyle(.secondary.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        Text("\(Int(marker.unusedPercent.rounded()))% unused")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
             }
             if let hover, let extent = dataExtent {
                 HoverRule(date: hover.point.date, extent: extent) {
@@ -197,6 +209,14 @@ private struct LimitHistoryRowView: View {
                 }
                 PointMark(x: .value("Time", hover.point.date), y: .value("Used", hover.point.percent))
                     .foregroundStyle(brand)
+            } else if let gapReset, let extent = dataExtent {
+                HoverRule(date: gapReset.date, extent: extent) {
+                    ChartCallout {
+                        Text("Reset · \(gapReset.date.formatted(Self.hoverFormat))")
+                        Text("\(DisplayFormat.points(gapReset.unusedPercent)) unused at reset")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .chartXSelection(value: $pointerDate)

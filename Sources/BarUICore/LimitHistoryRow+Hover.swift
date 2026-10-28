@@ -22,6 +22,15 @@ extension LimitHistoryRow {
         return Hover(point: point, reset: reset)
     }
 
+    /// The reset closest to `date` within `reach`, whatever samples sit near
+    /// it. A reset inside a Tracking gap has no sample to carry its figure,
+    /// so hovering near its marker has to find it on its own.
+    public func resetMarker(near date: Date, within reach: TimeInterval) -> ResetMarker? {
+        resetMarkers
+            .filter { abs($0.date.timeIntervalSince(date)) <= reach }
+            .min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+    }
+
     static func nearestPoint(in segments: [[Point]], to date: Date) -> Point? {
         guard let firstDate = segments.first?.first?.date, let lastDate = segments.last?.last?.date else {
             return nil

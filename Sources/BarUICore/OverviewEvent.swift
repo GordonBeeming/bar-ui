@@ -22,6 +22,11 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
     public let date: Date
     /// The reset Limit's Window length; nil for every other kind of event.
     public var windowMinutes: Int? = nil
+    /// How much of the Window went unused at a reset, 0 to 100; nil for every
+    /// other kind of event. The Resets & Perks chart plots it.
+    public var unusedPercent: Double? = nil
+    /// The reset Limit's name ("Weekly"); nil for every other kind of event.
+    public var limitName: String? = nil
 
     /// A Window shorter than this resets often enough to drown out the rest
     /// of the list, so its resets are hidden unless asked for.
@@ -65,7 +70,9 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                     title: "\(reset.limit.name) reset",
                     detail: "\(Int((100 - reset.utilizationLast).rounded()))% unused at reset",
                     date: Date(unixNano: reset.timeUnixNano),
-                    windowMinutes: history.limit.windowDurationMinutes
+                    windowMinutes: history.limit.windowDurationMinutes,
+                    unusedPercent: 100 - reset.utilizationLast,
+                    limitName: reset.limit.name
                 ))
             }
             events += crossings(in: history)
