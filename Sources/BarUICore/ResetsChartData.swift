@@ -64,10 +64,13 @@ public struct ResetsChartData: Sendable, Equatable {
         self.bars = bars.sorted { $0.date < $1.date }
         self.perks = perks.sorted { $0.date < $1.date }
 
+        let oldest = (bars.map(\.date) + perks.map(\.date)).min()
         if let tokensDomain {
-            domain = tokensDomain
+            // All time's token history can start after the first reset; the
+            // chart still has to reach back to every mark it draws.
+            let start = min(tokensDomain.lowerBound, oldest ?? tokensDomain.lowerBound)
+            domain = start...tokensDomain.upperBound
         } else {
-            let oldest = (bars.map(\.date) + perks.map(\.date)).min()
             let start = range.start(now: now) ?? oldest ?? now
             domain = min(start, now)...now
         }

@@ -137,8 +137,12 @@ private struct LimitHistoryRowView: View {
         Set(row.bridges.flatMap { $0.map(\.date) })
     }
 
+    /// Covers reset markers too: a Limit can log resets in a range with no
+    /// samples, and those markers still need an axis and a hover readout.
     private var dataExtent: ClosedRange<Date>? {
-        guard let first = row.segments.first?.first?.date, let last = row.segments.last?.last?.date else {
+        let dates = [row.segments.first?.first?.date, row.segments.last?.last?.date].compactMap { $0 }
+            + row.resetMarkers.map(\.date)
+        guard let first = dates.min(), let last = dates.max() else {
             return nil
         }
         return first...last

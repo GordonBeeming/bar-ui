@@ -98,6 +98,16 @@ struct ResetsChartDataTests {
         #expect(data.domain == tokens)
     }
 
+    @Test("A reset older than the first tokens still fits, so token history never hides it")
+    func alignedReachesOlderMarks() {
+        let tokens = Self.now.addingTimeInterval(-24 * 3_600)...Self.now
+        let events = Self.timeline(resets: [Self.reset(Self.weekly, app: .codexBar, used: 50, hoursAgo: 400)])
+
+        let data = ResetsChartData(events: events, range: .all, now: Self.now, alignedTo: tokens)
+
+        #expect(data.domain == Self.now.addingTimeInterval(-400 * 3_600)...Self.now)
+    }
+
     @Test("Resets and a Perk at the same moment are one hover stop, listing them all")
     func coincidentMarksShareAMoment() {
         let fable = LimitDescriptor(id: "weekly_scoped:Fable", name: "Weekly — Fable", windowDurationMinutes: 10_080, modelID: nil)

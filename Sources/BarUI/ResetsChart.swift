@@ -46,7 +46,10 @@ struct ResetsChart: View {
                 BarMark(
                     x: .value("Reset", placed.bar.date),
                     y: .value("Unused", placed.bar.unusedPercent),
-                    width: .fixed(Self.barWidth)
+                    width: .fixed(Self.barWidth),
+                    // Coincident bars share an x value, and stacking would
+                    // lift each onto the one before it.
+                    stacking: .unstacked
                 )
                 .foregroundStyle(by: .value("Bar App", placed.bar.app.displayName))
                 .cornerRadius(3)
