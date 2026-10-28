@@ -66,6 +66,14 @@ struct LimitHoverTests {
         #expect(row.hover(at: Self.date(21_300))?.reset == nil)
     }
 
+    @Test("Hovering near a reset in a gap still finds it, so its figure is never out of reach")
+    func resetInGapIsReachable() {
+        let row = Self.row(resets: [(10_000, 40)])
+
+        #expect(row.resetMarker(near: Self.date(10_300), within: 600)?.unusedPercent == 60)
+        #expect(row.resetMarker(near: Self.date(12_000), within: 600) == nil)
+    }
+
     private static func nano(_ seconds: Int) -> Int64 {
         1_791_000_000_000_000_000 + Int64(seconds) * 1_000_000_000
     }

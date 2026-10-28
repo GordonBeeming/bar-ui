@@ -123,6 +123,16 @@ private struct LimitHistoryRowView: View {
         pointerDate.flatMap { row.hover(at: $0) }
     }
 
+    /// A reset inside a Tracking gap has no sample to hover, so near its
+    /// marker the readout shows the reset on its own.
+    private var gapReset: LimitHistoryRow.ResetMarker? {
+        guard hover == nil, let pointerDate, let extent = dataExtent else {
+            return nil
+        }
+        let reach = extent.upperBound.timeIntervalSince(extent.lowerBound) * 0.02
+        return row.resetMarker(near: pointerDate, within: reach)
+    }
+
     private var bridgedDates: Set<Date> {
         Set(row.bridges.flatMap { $0.map(\.date) })
     }
@@ -195,6 +205,14 @@ private struct LimitHistoryRowView: View {
                 }
                 PointMark(x: .value("Time", hover.point.date), y: .value("Used", hover.point.percent))
                     .foregroundStyle(brand)
+            } else if let gapReset, let extent = dataExtent {
+                HoverRule(date: gapReset.date, extent: extent) {
+                    ChartCallout {
+                        Text("Reset · \(gapReset.date.formatted(Self.hoverFormat))")
+                        Text("\(DisplayFormat.points(gapReset.unusedPercent)) unused at reset")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .chartXSelection(value: $pointerDate)

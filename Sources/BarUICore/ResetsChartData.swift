@@ -21,17 +21,25 @@ public struct ResetsChartData: Sendable, Equatable {
         public let date: Date
     }
 
+    /// Everything drawn at one instant, so a hover can list resets and Perk
+    /// changes that share a timestamp instead of hiding all but one.
+    public struct Moment: Sendable, Equatable {
+        public let date: Date
+        public let bars: [Bar]
+        public let perks: [PerkMarker]
+    }
+
     public let bars: [Bar]
     public let perks: [PerkMarker]
-    /// The range, ending now, so the chart lines up with the Tokens chart;
-    /// All time reaches back to the oldest thing drawn.
+    /// The Tokens chart's span when given, so the two line up; otherwise the
+    /// range ending now, with All time reaching back to the oldest mark.
     public let domain: ClosedRange<Date>
 
     public var isEmpty: Bool {
         bars.isEmpty && perks.isEmpty
     }
 
-    public init(events: [OverviewEvent], range: TimeRange, now: Date) {
+    public init(events: [OverviewEvent], range: TimeRange, now: Date, alignedTo tokensDomain: ClosedRange<Date>? = nil) {
         var bars: [Bar] = []
         var perks: [PerkMarker] = []
         for event in events {
@@ -56,8 +64,28 @@ public struct ResetsChartData: Sendable, Equatable {
         self.bars = bars.sorted { $0.date < $1.date }
         self.perks = perks.sorted { $0.date < $1.date }
 
-        let oldest = (bars.map(\.date) + perks.map(\.date)).min()
-        let start = range.start(now: now) ?? oldest ?? now
-        domain = min(start, now)...now
+        if let tokensDomain {
+            domain = tokensDomain
+        } else {
+            let oldest = (bars.map(\.date) + perks.map(\.date)).min()
+            let start = range.start(now: now) ?? oldest ?? now
+            domain = min(start, now)...now
+        }
+    }
+
+    /// The marks at the instant nearest `date`, if one is within 3% of the
+    /// chart's span; further than that the pointer isn't on anything.
+    public func moment(near date: Date) -> Moment? {
+        let reach = domain.upperBound.timeIntervalSince(domain.lowerBound) * 0.03
+        let dates = bars.map(\.date) + perks.map(\.date)
+        guard let nearest = dates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }),
+              abs(nearest.timeIntervalSince(date)) <= reach else {
+            return nil
+        }
+        return Moment(
+            date: nearest,
+            bars: bars.filter { $0.date == nearest },
+            perks: perks.filter { $0.date == nearest }
+        )
     }
 }

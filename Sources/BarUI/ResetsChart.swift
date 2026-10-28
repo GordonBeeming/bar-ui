@@ -11,66 +11,46 @@ struct ResetsChart: View {
 
     @State private var pointerDate: Date?
 
+    private static let barWidth = 10.0
     /// Resets at the same moment (ClaudeBar's Weekly and Weekly Fable) would
-    /// draw on top of each other; each after the first moves right by this
-    /// share of the range so they stand side by side.
-    private static let sideBySideShare = 0.008
+    /// draw on top of each other. They keep their real time on the axis and
+    /// spread sideways in points, so none is pushed past now or the range.
+    private static let sideBySideGap = 2.0
     /// Diamonds sit above the 100% line, clear of the tallest bar.
     private static let perkRowValue = 112.0
-    /// How close, as a share of the range, the pointer must be to pick a mark.
-    private static let pickShare = 0.03
 
     private struct PlacedBar: Identifiable {
         let bar: ResetsChartData.Bar
-        let x: Date
+        let offset: CGFloat
         var id: String { bar.id }
     }
 
     private var placedBars: [PlacedBar] {
-        let span = data.domain.upperBound.timeIntervalSince(data.domain.lowerBound)
+        let groupSize = Dictionary(grouping: data.bars, by: \.date).mapValues(\.count)
         var seen: [Date: Int] = [:]
         return data.bars.map { bar in
             let index = seen[bar.date, default: 0]
             seen[bar.date] = index + 1
-            return PlacedBar(bar: bar, x: bar.date.addingTimeInterval(Double(index) * span * Self.sideBySideShare))
+            let centred = Double(index) - Double(groupSize[bar.date, default: 1] - 1) / 2
+            return PlacedBar(bar: bar, offset: centred * (Self.barWidth + Self.sideBySideGap))
         }
     }
 
-    private enum Picked {
-        case bar(ResetsChartData.Bar)
-        case perk(ResetsChartData.PerkMarker)
-
-        var date: Date {
-            switch self {
-            case .bar(let bar): bar.date
-            case .perk(let perk): perk.date
-            }
-        }
-    }
-
-    private var picked: Picked? {
-        guard let pointerDate else {
-            return nil
-        }
-        let reach = data.domain.upperBound.timeIntervalSince(data.domain.lowerBound) * Self.pickShare
-        let candidates = data.bars.map(Picked.bar) + data.perks.map(Picked.perk)
-        return candidates
-            .map { ($0, abs($0.date.timeIntervalSince(pointerDate))) }
-            .filter { $0.1 <= reach }
-            .min { $0.1 < $1.1 }?
-            .0
+    private var moment: ResetsChartData.Moment? {
+        pointerDate.flatMap(data.moment(near:))
     }
 
     var body: some View {
         Chart {
             ForEach(placedBars) { placed in
                 BarMark(
-                    x: .value("Reset", placed.x),
+                    x: .value("Reset", placed.bar.date),
                     y: .value("Unused", placed.bar.unusedPercent),
-                    width: .fixed(10)
+                    width: .fixed(Self.barWidth)
                 )
                 .foregroundStyle(by: .value("Bar App", placed.bar.app.displayName))
                 .cornerRadius(3)
+                .offset(x: placed.offset)
             }
             ForEach(data.perks) { perk in
                 PointMark(x: .value("Perk", perk.date), y: .value("Perk", Self.perkRowValue))
@@ -78,9 +58,9 @@ struct ResetsChart: View {
                     .symbolSize(70)
                     .foregroundStyle(perk.app.brandColor)
             }
-            if let picked {
-                HoverRule(date: picked.date, extent: data.domain) {
-                    callout(for: picked)
+            if let moment {
+                HoverRule(date: moment.date, extent: data.domain) {
+                    callout(for: moment)
                 }
             }
         }
@@ -106,22 +86,20 @@ struct ResetsChart: View {
         .accessibilityLabel("Unused at each reset, \(data.bars.count) resets and \(data.perks.count) Perk changes")
     }
 
-    private func callout(for picked: Picked) -> some View {
+    private func callout(for moment: ResetsChartData.Moment) -> some View {
         ChartCallout {
-            switch picked {
-            case .bar(let bar):
+            ForEach(moment.bars) { bar in
                 Text("\(bar.app.displayName) · \(bar.limitName) reset")
                     .fontWeight(.semibold)
                 Text("\(DisplayFormat.points(Int(bar.unusedPercent.rounded()))) unused")
-                Text(bar.date.formatted(date: .abbreviated, time: .shortened))
-                    .foregroundStyle(.secondary)
-            case .perk(let perk):
+            }
+            ForEach(moment.perks) { perk in
                 Text("\(perk.app.displayName) · \(perk.title)")
                     .fontWeight(.semibold)
                 Text(perk.detail)
-                Text(perk.date.formatted(date: .abbreviated, time: .shortened))
-                    .foregroundStyle(.secondary)
             }
+            Text(moment.date.formatted(date: .abbreviated, time: .shortened))
+                .foregroundStyle(.secondary)
         }
     }
 }

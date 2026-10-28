@@ -8,6 +8,8 @@ struct ResetsAndPerksSection: View {
     let events: [OverviewEvent]
     let range: TimeRange
     let now: Date
+    /// The Tokens chart's span, so this chart's days sit under the same days.
+    let tokensDomain: ClosedRange<Date>?
 
     /// Off by default: a 5-hour session resets several times a day, and those
     /// rows would bury the weekly resets and everything else.
@@ -19,7 +21,7 @@ struct ResetsAndPerksSection: View {
 
     var body: some View {
         let events = shown
-        let chart = ResetsChartData(events: events, range: range, now: now)
+        let chart = ResetsChartData(events: events, range: range, now: now, alignedTo: tokensDomain)
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Resets & Perks")

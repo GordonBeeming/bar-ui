@@ -89,6 +89,40 @@ struct ResetsChartDataTests {
         #expect(data.domain.upperBound == Self.now)
     }
 
+    @Test("Given the Tokens chart's span, the chart uses exactly that, so the two line up")
+    func alignedToTokens() {
+        let tokens = Self.now.addingTimeInterval(-7 * 86_400 - 3_600)...Self.now.addingTimeInterval(9 * 3_600)
+
+        let data = ResetsChartData(events: [], range: .week, now: Self.now, alignedTo: tokens)
+
+        #expect(data.domain == tokens)
+    }
+
+    @Test("Resets and a Perk at the same moment are one hover stop, listing them all")
+    func coincidentMarksShareAMoment() {
+        let fable = LimitDescriptor(id: "weekly_scoped:Fable", name: "Weekly — Fable", windowDurationMinutes: 10_080, modelID: nil)
+        let all = LimitDescriptor(id: "weekly_all", name: "Weekly (all models)", windowDurationMinutes: 10_080, modelID: nil)
+        let events = Self.timeline(resets: [
+            Self.reset(all, app: .claudeBar, used: 27, hoursAgo: 80),
+            Self.reset(fable, app: .claudeBar, used: 15, hoursAgo: 80),
+            Self.reset(Self.weekly, app: .codexBar, used: 2, hoursAgo: 5)
+        ])
+        let data = ResetsChartData(events: events, range: .week, now: Self.now)
+
+        let moment = data.moment(near: Self.now.addingTimeInterval(-80 * 3_600 + 600))
+
+        #expect(Set(moment?.bars.map(\.limitName) ?? []) == ["Weekly (all models)", "Weekly — Fable"])
+        #expect(moment?.date == Self.now.addingTimeInterval(-80 * 3_600))
+    }
+
+    @Test("Hovering far from every mark picks nothing")
+    func nothingNearby() {
+        let events = Self.timeline(resets: [Self.reset(Self.weekly, app: .codexBar, used: 2, hoursAgo: 5)])
+        let data = ResetsChartData(events: events, range: .week, now: Self.now)
+
+        #expect(data.moment(near: Self.now.addingTimeInterval(-100 * 3_600)) == nil)
+    }
+
     @Test("Session resets the list hides aren't bars either")
     func hiddenSessionResets() {
         let events = Self.timeline(resets: [
