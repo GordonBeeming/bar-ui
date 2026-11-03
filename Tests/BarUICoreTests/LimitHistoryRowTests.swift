@@ -201,7 +201,7 @@ struct LimitHistoryRowTests {
 
         let rows = LimitHistoryRow.rows(from: [history("b", nil), history("weekly", 10080), history("session", 300), history("a", nil)])
 
-        #expect(rows.map(\.limitID) == ["session", "weekly", "a", "b"])
+        #expect(rows.map(\.limitID) == ["weekly", "a", "b"])
     }
 
     private static func nano(_ seconds: Int) -> Int64 {

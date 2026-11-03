@@ -25,12 +25,11 @@ struct LimitsOverviewTests {
 
         let cards = overview.cards(now: Self.now)
         #expect(cards.map(\.id) == [
-            "claudeBar/session",
             "claudeBar/weekly_all",
             "claudeBar/weekly_scoped:claude-opus-4-1",
             "codexBar/codex:10080"
         ])
-        #expect(cards.first?.resetText == "Resets in 1h 20m")
+        #expect(cards.first?.resetText == "Resets in 1d 23h")
         #expect(overview.problem == nil)
     }
 

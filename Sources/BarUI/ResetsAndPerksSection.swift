@@ -14,12 +14,8 @@ struct ResetsAndPerksSection: View {
     /// chart's control drives both sections.
     var rangeSelection: Binding<TimeRange>?
 
-    /// Off by default: a 5-hour session resets several times a day, and those
-    /// rows would bury the weekly resets and everything else.
-    @AppStorage("showSessionResets") private var showSessionResets = false
-
     private var shown: [OverviewEvent] {
-        showSessionResets ? events : OverviewEvent.hidingShortWindowResets(events)
+        OverviewEvent.hidingShortWindowResets(events)
     }
 
     var body: some View {
@@ -40,11 +36,6 @@ struct ResetsAndPerksSection: View {
                     .labelsHidden()
                     .fixedSize()
                 }
-                Toggle("Show session resets", isOn: $showSessionResets)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
             }
 
             if !chart.isEmpty {
@@ -65,9 +56,7 @@ struct ResetsAndPerksSection: View {
                 ContentUnavailableView(
                     "No resets or Perks in this range",
                     systemImage: "chart.bar",
-                    description: Text(showSessionResets
-                        ? "Resets, Perks and Tracking changes your Bar Apps record show up here."
-                        : "Resets, Perks and Tracking changes your Bar Apps record show up here. Session resets are hidden.")
+                    description: Text("Resets, Perks and Tracking changes your Bar Apps record show up here.")
                 )
                 .frame(height: 160)
             } else {

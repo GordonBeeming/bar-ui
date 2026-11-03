@@ -20,6 +20,13 @@ public struct LimitDescriptor: Sendable, Hashable {
         self.windowDurationMinutes = windowDurationMinutes
         self.modelID = modelID
     }
+
+    /// A Window under a day, such as Claude's 5 hour session. Unknown lengths
+    /// stay visible: hiding one would be a guess. The samples stay in the Archive.
+    public var isHiddenShortWindow: Bool {
+        guard let windowDurationMinutes else { return false }
+        return windowDurationMinutes < 24 * 60
+    }
 }
 
 /// One data point of a Limit metric, as read from a Bar App's metrics file.

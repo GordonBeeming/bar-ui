@@ -88,6 +88,14 @@ public struct PriceTable: Sendable, Equatable {
     }
 
     public func price(for model: String) -> ModelPrice? {
-        prices[model.lowercased()]
+        let key = model.lowercased()
+        if let price = prices[key] {
+            return price
+        }
+        // The Grok CLI names its build (`grok-4.7-build`). The public API id
+        // is that name without the suffix, and LiteLLM files it under `xai/`.
+        guard key.hasSuffix("-build") else { return nil }
+        let publicID = String(key.dropLast("-build".count))
+        return prices["xai/\(publicID)"]
     }
 }

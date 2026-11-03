@@ -90,6 +90,7 @@ public struct LimitHistoryRow: Sendable, Hashable, Identifiable {
         now: Date? = nil
     ) -> [LimitHistoryRow] {
         histories
+            .filter { !$0.limit.isHiddenShortWindow }
             .sorted {
                 let lhs = $0.limit.windowDurationMinutes ?? .max
                 let rhs = $1.limit.windowDurationMinutes ?? .max

@@ -179,8 +179,8 @@ struct OverviewEventsTests {
         #expect(OverviewEvent.hidingShortWindowResets(events).count == 1)
     }
 
-    @Test("Only resets are hidden: a session Limit running low and Tracking starting stay")
-    func keepsOtherEvents() {
+    @Test("A short Window's running low is hidden, and Tracking starting stays")
+    func hidesShortWindowCrossings() {
         let events = timeline(
             histories: [history(utilization: [10, 80])],
             trackingStarts: [TrackingStartedEvent(app: .claudeBar, intervalMinutes: 5, timeUnixNano: Self.t0)]
@@ -188,8 +188,7 @@ struct OverviewEventsTests {
 
         let shown = OverviewEvent.hidingShortWindowResets(events)
 
-        #expect(shown.count == events.count)
-        #expect(shown.contains { $0.kind == .runningLow })
+        #expect(shown.contains { $0.kind == .runningLow } == false)
         #expect(shown.contains { $0.kind == .trackingStarted })
     }
 }

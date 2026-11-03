@@ -48,7 +48,7 @@ _Avoid_: schema, format
 One of: input (not from cache), cache read, cache write (5 minute), cache write (1 hour), cache write (no lifetime), output, and reasoning. Reasoning is a part of output, so totals never add it on top of output. A cache write with no lifetime is what Grok reports.
 
 **API Cost**:
-What a set of tokens would have cost at the AI vendor's public API prices, shown in the configured currency (A$ by default). It is a what-if figure, not money actually spent. Tokens for a model with no known price have no API Cost and are never priced by guessing.
+What a set of tokens would have cost at the AI vendor's public API prices, shown in the configured currency (A$ by default). It is a what-if figure, not money actually spent. A Grok CLI id ending in `-build` uses the public xAI price for that model name (`grok-4.7-build` is `grok-4.7`). Tokens for a model with no known price have no API Cost and are never priced by guessing.
 _Avoid_: spend, cost, price
 
 ### Limits
@@ -58,7 +58,7 @@ A cap a Bar App reports on how much of an AI coding tool can be used, measured a
 _Avoid_: quota, rate limit, bucket
 
 **Window**:
-The repeating period after which a Limit resets, with a duration the Bar App reports. Each Bar App has its own set of Windows (Claude: 5 hour and weekly, some per model; Codex: weekly only today). None are assumed.
+The repeating period after which a Limit resets, with a duration the Bar App reports. Each Bar App has its own set of Windows (Claude records a 5 hour session and weekly limits, some per model; Codex is weekly only today). A Window under a day stays in the Archive and is left out of the UI. None are assumed.
 
 **Burn Rate**:
 How fast a Limit's utilisation has been rising recently, in percentage points per hour. For tokens, it is tokens per hour.
