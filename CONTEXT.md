@@ -45,7 +45,7 @@ _Avoid_: schema, format
 ### Usage
 
 **Token Type**:
-One of: input (not from cache), cache read, cache write (5 minute), cache write (1 hour), output, and reasoning. Reasoning is a part of output, so totals never add it on top of output.
+One of: input (not from cache), cache read, cache write (5 minute), cache write (1 hour), cache write (no lifetime), output, and reasoning. Reasoning is a part of output, so totals never add it on top of output. A cache write with no lifetime is what Grok reports.
 
 **API Cost**:
 What a set of tokens would have cost at the AI vendor's public API prices, shown in the configured currency (A$ by default). It is a what-if figure, not money actually spent. Tokens for a model with no known price have no API Cost and are never priced by guessing.

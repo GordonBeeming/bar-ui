@@ -12,6 +12,15 @@ extension BarApp {
         case .grokBar: Color(light: 0x1A1A1A, dark: 0xF2F2F2)
         }
     }
+
+    /// The sidebar glyph. GrokBar's dark fill is near white, so the sparkle
+    /// flips to black there. The other tiles stay dark enough for white.
+    var symbolColor: Color {
+        switch self {
+        case .claudeBar, .codexBar: .white
+        case .grokBar: Color(light: 0xFFFFFF, dark: 0x1A1A1A)
+        }
+    }
 }
 
 extension TokenKind {
