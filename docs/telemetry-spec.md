@@ -1,6 +1,6 @@
 # Bar App Telemetry Spec, v1
 
-This is the contract between a Bar App (ClaudeBar, CodexBar) that writes Telemetry and Bar UI, which reads it. Words in **bold** are defined in [CONTEXT.md](../CONTEXT.md). Why the spec exists at all is in [ADR 0001](adr/0001-written-telemetry-spec-no-shared-package.md).
+This is the contract between a Bar App (ClaudeBar, CodexBar, GrokBar) that writes Telemetry and Bar UI, which reads it. Words in **bold** are defined in [CONTEXT.md](../CONTEXT.md). Why the spec exists at all is in [ADR 0001](adr/0001-written-telemetry-spec-no-shared-package.md).
 
 MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -51,7 +51,7 @@ Every `ResourceMetrics` and `ResourceLogs` MUST carry these resource attributes:
 
 | Attribute | Value |
 |---|---|
-| `service.name` | `claudebar` or `codexbar`, always lowercase |
+| `service.name` | `claudebar`, `codexbar`, or `grokbar`, always lowercase |
 | `service.version` | The app's marketing version |
 | `host.name` | The Mac's host name |
 | `os.type` | `darwin` |
@@ -71,7 +71,7 @@ A **Limit** is identified by `limit.id`, which MUST stay the same for the same L
 
 | Attribute | Required | Meaning |
 |---|---|---|
-| `limit.id` | yes | Stable ID. Claude: the API's limit `kind`, plus `:<model id>` when the limit is scoped to a model (for example `session`, `weekly_all`, `weekly_scoped:claude-opus-4-1`). When the API gives a scoped limit only a display name and no model ID, use `<kind>:<display name>` (for example `weekly_scoped:Fable`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. When Codex doesn't report the window length, use `<bucket id>:<window label>` (for example `codex:primary`). Both fallbacks are a last resort, because the ID changes if the tool renames or swaps the label. Bar UI then sees a new Limit, and the old one disappears. |
+| `limit.id` | yes | Stable ID. Claude: the API's limit `kind`, plus `:<model id>` when the limit is scoped to a model (for example `session`, `weekly_all`, `weekly_scoped:claude-opus-4-1`). When the API gives a scoped limit only a display name and no model ID, use `<kind>:<display name>` (for example `weekly_scoped:Fable`). Codex: `<bucket id>:<window minutes>` (for example `codex:10080`), because Codex's `primary` and `secondary` labels can swap between plans. When Codex doesn't report the window length, use `<bucket id>:<window label>` (for example `codex:primary`). Both fallbacks are a last resort, because the ID changes if the tool renames or swaps the label. Bar UI then sees a new Limit, and the old one disappears. Grok: `credits:monthly` for a monthly period (20 to 45 days, or a monthly type with no length), because a calendar month is not a fixed number of minutes. The exact length stays in `limit.window.duration_minutes`. Any other known length uses `credits:<window minutes>`. With no length and a weekly type, `credits:weekly`. With nothing else, `credits`. A legacy monthly balance with no percent uses `credits:legacy`. On-demand spend uses `on_demand`. A product row, when the CLI forwards one, uses `product:<product>`. |
 | `limit.name` | yes | Display name, for example `Weekly · Opus` |
 | `limit.window.duration_minutes` | when known | The **Window** length as an int, for example `300` or `10080`. Leave it out when the Bar App doesn't know it; never write `0`. Bar UI still shows the Limit, without the Window length. |
 | `model.id` | only when the tool says the Limit applies to one model | Never inferred. Codex doesn't scope its Limits to models today, so CodexBar leaves it out. |
@@ -100,7 +100,7 @@ Both are written every sample, for every Limit the tool currently reports.
 | `cache_read` | Input tokens read from the cache |
 | `cache_write_5m` | Input tokens written to the cache with a 5-minute lifetime |
 | `cache_write_1h` | Input tokens written to the cache with a 1-hour lifetime |
-| `cache_write` | Input tokens written to the cache when the tool doesn't report a lifetime and has no documented default. (Claude's default is 5 minutes, so ClaudeBar counts an unsplit write as `cache_write_5m`.) |
+| `cache_write` | Input tokens written to the cache when the tool doesn't report a lifetime and has no documented default. (Claude's default is 5 minutes, so ClaudeBar counts an unsplit write as `cache_write_5m`. Grok's cache writes have no lifetime, so GrokBar uses `cache_write`.) |
 | `output` | All output tokens, reasoning included |
 | `reasoning` | The reasoning part of `output`. Bar UI never adds this on top of `output`. |
 
@@ -112,6 +112,7 @@ Rules:
 - Every count is attributed to the model that produced it. Codex takes the model from the session's turn context, per turn.
 - Codex's `input_tokens` already includes cached tokens. CodexBar MUST subtract `cached_input_tokens` so that `input` means the same thing for both apps. Codex doesn't say whether `cache_write_input_tokens` is inside `input_tokens` too, so CodexBar decides per event: when `total_tokens` equals `input_tokens + output_tokens`, the cache writes are inside input and are subtracted as well.
 - Codex sometimes repeats a `token_count` event with the same running total. CodexBar MUST skip a total it has already counted, so nothing is counted twice.
+- Grok stores running totals in each session's `usage.json`. `inputTokens` already includes cache reads. When `totalTokens` equals `inputTokens` + `outputTokens`, cache writes are inside input as well, and GrokBar subtracts them so `input` is uncached input. GrokBar records the totals it sees when Tracking starts and counts only later growth. A repeated total is not counted again. If a file's total drops, that file restarted: the new totals count, and `startTimeUnixNano` moves.
 
 ### 4.3 Perks
 
@@ -178,6 +179,7 @@ Bar UI reads these keys from the Bar App's defaults domain (its bundle ID) and n
 |---|---|
 | ClaudeBar | `claudebar://` |
 | CodexBar | `codexbar://` |
+| GrokBar | `grokbar://` |
 
 - **`<scheme>://telemetry?enabled=1&interval=5&retention=0&folder=<percent-encoded path>`**
   - Any subset of the parameters is allowed. Unknown parameters are ignored.

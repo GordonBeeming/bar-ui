@@ -5,7 +5,7 @@ A desktop dashboard that shows the telemetry Gordon's menu bar apps record about
 ## Language
 
 **Bar App**:
-One of Gordon's menu bar apps that watches an AI coding tool's usage limits and can record telemetry about it. The set is closed and known in code: ClaudeBar and CodexBar today.
+One of Gordon's menu bar apps that watches an AI coding tool's usage limits and can record telemetry about it. The set is closed and known in code: ClaudeBar, CodexBar, and GrokBar.
 _Avoid_: source, plugin, provider
 
 **Dashboard**:
@@ -45,7 +45,7 @@ _Avoid_: schema, format
 ### Usage
 
 **Token Type**:
-One of: input (not from cache), cache read, cache write (5 minute), cache write (1 hour), output, and reasoning. Reasoning is a part of output, so totals never add it on top of output.
+One of: input (not from cache), cache read, cache write (5 minute), cache write (1 hour), cache write (no lifetime), output, and reasoning. Reasoning is a part of output, so totals never add it on top of output. A cache write with no lifetime is what Grok reports.
 
 **API Cost**:
 What a set of tokens would have cost at the AI vendor's public API prices, shown in the configured currency (A$ by default). It is a what-if figure, not money actually spent. Tokens for a model with no known price have no API Cost and are never priced by guessing.

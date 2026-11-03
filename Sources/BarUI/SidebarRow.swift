@@ -59,7 +59,7 @@ private struct BarAppTile: View {
             .overlay {
                 Image(systemName: app.systemImage)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(app.symbolColor)
             }
             .accessibilityHidden(true)
     }
@@ -79,6 +79,7 @@ private extension BarApp {
         switch self {
         case .claudeBar: "asterisk"
         case .codexBar: "chevron.forward"
+        case .grokBar: "sparkle"
         }
     }
 }

@@ -140,6 +140,7 @@ extension BarApp {
         switch self {
         case .claudeBar: "claudebar"
         case .codexBar: "codexbar"
+        case .grokBar: "grokbar"
         }
     }
 }
