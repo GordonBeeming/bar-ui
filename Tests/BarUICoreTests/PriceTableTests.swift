@@ -20,6 +20,11 @@ struct PriceTableTests {
         "output_cost_per_token": 0.00001,
         "cache_read_input_token_cost": 1.25E-7
       },
+      "xai/grok-4.7": {
+        "input_cost_per_token": 0.000002,
+        "output_cost_per_token": 0.000006,
+        "cache_read_input_token_cost": 5E-7
+      },
       "text-embedding": { "input_cost_per_token": 1E-7 }
     }
     """
@@ -62,6 +67,16 @@ struct PriceTableTests {
 
         #expect(table.price(for: "Claude-Opus-4-8") != nil)
         #expect(table.price(for: "unknown") == nil)
+    }
+
+    @Test("A Grok CLI build id uses the public API price for that model")
+    func grokBuildUsesPublicAPIPrice() throws {
+        let table = try Self.table()
+        let publicPrice = try #require(table.price(for: "xai/grok-4.7"))
+
+        #expect(table.price(for: "grok-4.7-build") == publicPrice)
+        #expect(table.price(for: "Grok-4.7-Build") == publicPrice)
+        #expect(table.price(for: "grok-4.6-build") == nil)
     }
 
     @Test("A document that isn't a price list, or has no prices, is rejected")

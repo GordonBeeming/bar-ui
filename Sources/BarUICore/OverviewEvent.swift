@@ -28,23 +28,17 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
     /// The reset Limit's name ("Weekly"); nil for every other kind of event.
     public var limitName: String? = nil
 
-    /// A Window shorter than this resets often enough to drown out the rest
-    /// of the list, so its resets are hidden unless asked for.
-    static let shortWindowMinutes = 24 * 60
-
-    /// A reset of a Window under a day, like Session (5h). A Window of unknown
-    /// length isn't counted, so nothing is hidden on a guess.
-    public var isShortWindowReset: Bool {
-        guard kind == .limitReset, let windowMinutes else {
-            return false
-        }
-        return windowMinutes < Self.shortWindowMinutes
+    /// An event about a Window under a day, like Session (5h). A Window of
+    /// unknown length isn't counted, so nothing is hidden on a guess.
+    public var isShortWindow: Bool {
+        guard let windowMinutes else { return false }
+        return windowMinutes < 24 * 60
     }
 
-    /// The events without short-Window resets: the default list, where every
-    /// 5-hour session reset would bury the weekly ones.
+    /// The events with nothing about a short Window. Those Windows stay in
+    /// the Archive and are left out of the list.
     public static func hidingShortWindowResets(_ events: [OverviewEvent]) -> [OverviewEvent] {
-        events.filter { !$0.isShortWindowReset }
+        events.filter { !$0.isShortWindow }
     }
 
     /// Every event the Archive can tell, newest first. Limits crossing into
@@ -88,7 +82,8 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                 detail: appeared
                     ? LimitHistoryRow.windowText(minutes: event.limit.windowDurationMinutes)
                     : "The Bar App stopped reporting it",
-                date: Date(unixNano: event.timeUnixNano)
+                date: Date(unixNano: event.timeUnixNano),
+                windowMinutes: event.limit.windowDurationMinutes
             ))
         }
 
@@ -177,7 +172,8 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                 kind: kind,
                 title: "\(history.limit.name) \(severity == .nearLimit ? "near limit" : "running low")",
                 detail: "Reached \(Int(sample.value.rounded()))% used",
-                date: Date(unixNano: sample.timeUnixNano)
+                date: Date(unixNano: sample.timeUnixNano),
+                windowMinutes: history.limit.windowDurationMinutes
             ))
         }
         return events

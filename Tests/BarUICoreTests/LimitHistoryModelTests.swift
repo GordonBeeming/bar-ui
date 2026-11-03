@@ -18,12 +18,9 @@ struct LimitHistoryModelTests {
 
         await model.load(app: .claudeBar, range: .all, now: Self.now)
 
-        #expect(model.rows.map(\.limitID) == ["session", "weekly_all", "weekly_scoped:claude-opus-4-1"])
-        let session = try #require(model.rows.first)
-        #expect(session.resetMarkers.map(\.unusedPercent) == [70, 28.5])
-        #expect(session.unusedAtLastReset == 28.5)
-        #expect(session.averageUnusedAtReset == 49.25)
-        #expect(session.percentUsedNow == 42)
+        #expect(model.rows.map(\.limitID) == ["weekly_all", "weekly_scoped:claude-opus-4-1"])
+        let weekly = try #require(model.rows.first)
+        #expect(weekly.percentUsedNow == 61)
         #expect(model.problem == nil)
     }
 
@@ -39,8 +36,7 @@ struct LimitHistoryModelTests {
 
         let weekly = try #require(model.rows.first { $0.limitID == "weekly_all" })
         #expect(weekly.resetMarkers.isEmpty)
-        let session = try #require(model.rows.first { $0.limitID == "session" })
-        #expect(session.resetMarkers.count == 2)
+        #expect(model.rows.contains { $0.limitID == "session" } == false)
     }
 
     @Test("A Bar App with nothing archived has no rows and no problem")

@@ -57,7 +57,7 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// values aren't current, so they don't belong in this strip.
     public static func cards(for limits: [CurrentLimit], states: [BarApp: TrackingState], now: Date) -> [LimitCard] {
         limits
-            .filter { states[$0.app] == .tracking }
+            .filter { states[$0.app] == .tracking && !$0.limit.isHiddenShortWindow }
             .sorted(by: displayOrder)
             .map { LimitCard(limit: $0, now: now) }
     }

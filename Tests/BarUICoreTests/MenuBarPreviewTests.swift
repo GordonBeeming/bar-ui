@@ -21,16 +21,7 @@ struct MenuBarPreviewTests {
         await preview.refresh(statuses: [.claudeBar: Self.status(.tracking, folder: fixture.claudeFolder)], now: Self.now)
 
         let rows = Dictionary(uniqueKeysWithValues: preview.rows.map { ($0.id, $0) })
-        #expect(preview.rows.map(\.id) == ["claudeBar/session", "claudeBar/weekly_all", "claudeBar/weekly_scoped:claude-opus-4-1"])
-
-        // 40% to 42% in five minutes is 24 points an hour: 100% is 2h25m away
-        // but the Window resets in 1h20m.
-        let session = try #require(rows["claudeBar/session"])
-        #expect(session.percentUsed == 42)
-        #expect(session.burnRateText == "+24%/h")
-        #expect(session.projectionText == nil)
-        #expect(session.isBurnRateHighlighted == false)
-        #expect(session.resetText == "Resets in 1h 20m")
+        #expect(preview.rows.map(\.id) == ["claudeBar/weekly_all", "claudeBar/weekly_scoped:claude-opus-4-1"])
 
         // 60% to 61% is 12 an hour, but five minutes of a week is too short a
         // sample to warn on; the rate still shows.
@@ -72,10 +63,10 @@ struct MenuBarPreviewTests {
     @Test("Right after a reset there is no Burn Rate yet, and nothing carries over from before it")
     func justAfterAReset() async throws {
         let fixture = try ImportFixture()
-        let session = LimitDescriptor(id: "session", name: "Session (5h)", windowDurationMinutes: 300, modelID: nil)
+        let weekly = LimitDescriptor(id: "weekly_all", name: "Weekly", windowDurationMinutes: 10_080, modelID: nil)
         let nano: (Int) -> Int64 = { 1_791_791_400_000_000_000 + Int64($0) * 60 * 1_000_000_000 }
         func sample(_ minutes: Int, _ metric: LimitMetric, _ value: Double) -> LimitSample {
-            LimitSample(app: .claudeBar, limit: session, metric: metric, timeUnixNano: nano(minutes), value: value)
+            LimitSample(app: .claudeBar, limit: weekly, metric: metric, timeUnixNano: nano(minutes), value: value)
         }
         try await fixture.archive.record(
             TelemetryRecords(
@@ -83,7 +74,7 @@ struct MenuBarPreviewTests {
                 sample(-50, .utilization, 80), sample(-40, .utilization, 95), sample(-1, .utilization, 2),
                 sample(-1, .resetsAt, Self.now.timeIntervalSince1970 + 5 * 3_600)
             ],
-            resets: [LimitReset(app: .claudeBar, limit: session, timeUnixNano: nano(-2), utilizationLast: 95, nextResetsAt: nil)]),
+            resets: [LimitReset(app: .claudeBar, limit: weekly, timeUnixNano: nano(-2), utilizationLast: 95, nextResetsAt: nil)]),
             progress: ImportProgress(app: .claudeBar, fileName: "x.jsonl", byteOffset: 1, droppedRecords: 0)
         )
         let overview = LimitsOverview(archive: fixture.archive)
@@ -100,10 +91,10 @@ struct MenuBarPreviewTests {
     @Test("Under 5% used there is too little change to warn about the pace, though the rate still shows")
     func noPaceWarningUnderFivePercent() async throws {
         let fixture = try ImportFixture()
-        let session = LimitDescriptor(id: "session", name: "Session (5h)", windowDurationMinutes: 300, modelID: nil)
+        let weekly = LimitDescriptor(id: "weekly_all", name: "Weekly", windowDurationMinutes: 10_080, modelID: nil)
         let nano: (Int) -> Int64 = { 1_791_791_400_000_000_000 + Int64($0) * 60 * 1_000_000_000 }
         func sample(_ minutes: Int, _ metric: LimitMetric, _ value: Double) -> LimitSample {
-            LimitSample(app: .claudeBar, limit: session, metric: metric, timeUnixNano: nano(minutes), value: value)
+            LimitSample(app: .claudeBar, limit: weekly, metric: metric, timeUnixNano: nano(minutes), value: value)
         }
         // 1% to 3% in five minutes is 24 points an hour, so 100% would come
         // in about 4 hours, before the reset in 5.

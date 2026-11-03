@@ -37,14 +37,13 @@ struct LimitCardTests {
         let cards = LimitCard.cards(for: limits, states: Self.bothTracking, now: Self.now)
 
         #expect(cards.map(\.id) == [
-            "claudeBar/session",
             "claudeBar/weekly_all",
             "claudeBar/weekly_scoped:Fable",
             "codexBar/codex:10080"
         ])
-        #expect(cards.map(\.appName) == ["ClaudeBar", "ClaudeBar", "ClaudeBar", "CodexBar"])
-        #expect(cards.map(\.windowName) == ["Session (5h)", "Weekly (all models)", "Weekly · Fable", "Weekly"])
-        #expect(cards.map(\.percentUsed) == [42, 61, 19, 19])
+        #expect(cards.map(\.appName) == ["ClaudeBar", "ClaudeBar", "CodexBar"])
+        #expect(cards.map(\.windowName) == ["Weekly (all models)", "Weekly · Fable", "Weekly"])
+        #expect(cards.map(\.percentUsed) == [61, 19, 19])
     }
 
     @Test("Bar Apps that aren't Tracking have no cards, even with Limits in the Archive")
@@ -62,7 +61,7 @@ struct LimitCardTests {
     @Test("Severity follows the design: running low from 75%, near the limit from 90%")
     func severity() {
         let limits = [74.9, 75, 89.9, 90, 100].enumerated().map { index, used in
-            Self.limit(.claudeBar, "l\(index)", "L\(index)", minutes: 300, used: used)
+            Self.limit(.claudeBar, "l\(index)", "L\(index)", minutes: 10080, used: used)
         }
 
         let cards = LimitCard.cards(for: limits, states: Self.bothTracking, now: Self.now)
@@ -119,7 +118,7 @@ struct LimitCardTests {
     func paceMark(minutes: Int?, resetsIn: TimeInterval?, expected: Double?) throws {
         let limit = Self.limit(.claudeBar, "session", "Session (5h)", minutes: minutes, used: 10, resetsIn: resetsIn)
 
-        let card = try #require(LimitCard.cards(for: [limit], states: Self.bothTracking, now: Self.now).first)
+        let card = LimitCard(limit: limit, now: Self.now)
 
         if let expected {
             let mark = try #require(card.windowElapsed)
