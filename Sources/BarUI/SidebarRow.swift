@@ -79,6 +79,7 @@ private extension BarApp {
         switch self {
         case .claudeBar: "asterisk"
         case .codexBar: "chevron.forward"
+        case .grokBar: "sparkle"
         }
     }
 }

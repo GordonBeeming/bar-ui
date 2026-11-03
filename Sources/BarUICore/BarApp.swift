@@ -3,11 +3,13 @@
 public enum BarApp: String, CaseIterable, Sendable, Hashable {
     case claudeBar
     case codexBar
+    case grokBar
 
     public var displayName: String {
         switch self {
         case .claudeBar: "ClaudeBar"
         case .codexBar: "CodexBar"
+        case .grokBar: "GrokBar"
         }
     }
 
@@ -17,6 +19,7 @@ public enum BarApp: String, CaseIterable, Sendable, Hashable {
         switch self {
         case .claudeBar: "com.gordonbeeming.ClaudeBar"
         case .codexBar: "com.gordonbeeming.CodexBar"
+        case .grokBar: "com.gordonbeeming.GrokBar"
         }
     }
 }

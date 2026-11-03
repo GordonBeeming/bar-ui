@@ -5,7 +5,7 @@ A desktop dashboard that shows the telemetry Gordon's menu bar apps record about
 ## Language
 
 **Bar App**:
-One of Gordon's menu bar apps that watches an AI coding tool's usage limits and can record telemetry about it. The set is closed and known in code: ClaudeBar and CodexBar today.
+One of Gordon's menu bar apps that watches an AI coding tool's usage limits and can record telemetry about it. The set is closed and known in code: ClaudeBar, CodexBar, and GrokBar.
 _Avoid_: source, plugin, provider
 
 **Dashboard**:

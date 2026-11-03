@@ -9,6 +9,7 @@ extension BarApp {
         switch self {
         case .claudeBar: Color(light: 0xD97757, dark: 0xE08A6C)
         case .codexBar: Color(light: 0x2449B8, dark: 0x6A8BFF)
+        case .grokBar: Color(light: 0x1A1A1A, dark: 0xF2F2F2)
         }
     }
 }
