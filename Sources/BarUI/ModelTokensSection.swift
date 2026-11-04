@@ -1,14 +1,11 @@
 import BarUICore
 import SwiftUI
 
-/// A Bar App's tokens by model for a chosen range, with what each would have
-/// cost at API prices.
+/// A Bar App's tokens by model for a chosen range.
 struct ModelTokensSection: View {
     let app: BarApp
     let overview: LimitsOverview
 
-    @Environment(PricingCatalog.self) private var pricing
-    @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
     @State private var range: TimeRange = .week
     /// Who this view is to the overview, which reads as far back as the
     /// longest range any view shows.
@@ -34,7 +31,7 @@ struct ModelTokensSection: View {
             // slide that often.
             TimelineView(.everyMinute) { context in
                 let usage = overview.tokenUsage(range: range, now: context.date)
-                let table = ModelTokensTable(usage: usage, app: app, prices: pricing.prices)
+                let table = ModelTokensTable(usage: usage, app: app)
                 if table.isEmpty {
                     ContentUnavailableView(
                         "No tokens in this range",
@@ -43,12 +40,7 @@ struct ModelTokensSection: View {
                     )
                     .frame(height: 160)
                 } else {
-                    ModelTokensGrid(
-                        table: table,
-                        currency: Currency(storedCode: currencyCode),
-                        rates: pricing.rates,
-                        pricesLoaded: pricing.prices != nil
-                    )
+                    ModelTokensGrid(table: table)
                 }
             }
         }
@@ -63,9 +55,6 @@ struct ModelTokensSection: View {
 
 private struct ModelTokensGrid: View {
     let table: ModelTokensTable
-    let currency: Currency
-    let rates: ExchangeRates?
-    let pricesLoaded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -76,7 +65,6 @@ private struct ModelTokensGrid: View {
                         Text(Self.label(for: type))
                     }
                     Text("Total")
-                    Text("API Cost")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -93,12 +81,6 @@ private struct ModelTokensGrid: View {
                     .fontWeight(.semibold)
             }
             .monospacedDigit()
-
-            if let note = totalCostSummary?.exclusionNote {
-                Label(note, systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
@@ -108,14 +90,6 @@ private struct ModelTokensGrid: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.separator, lineWidth: 1)
         }
-    }
-
-    private var totalCostSummary: ApiCostSummary? {
-        summary(of: table.totals)
-    }
-
-    private func summary(of row: ModelTokensTable.Row) -> ApiCostSummary? {
-        row.cost.map { ApiCostSummary(cost: $0, currency: currency, rates: rates) }
     }
 
     private func line(_ row: ModelTokensTable.Row) -> some View {
@@ -131,18 +105,6 @@ private struct ModelTokensGrid: View {
                 }
             }
             Text(row.total.formatted())
-            costCell(row)
-        }
-    }
-
-    @ViewBuilder
-    private func costCell(_ row: ModelTokensTable.Row) -> some View {
-        if row.hasNoPricing {
-            Text("No pricing").foregroundStyle(.secondary)
-        } else if let summary = summary(of: row) {
-            Text(summary.value).help(summary.rateNote)
-        } else {
-            Text(pricesLoaded ? "–" : "Loading prices").foregroundStyle(.secondary)
         }
     }
 

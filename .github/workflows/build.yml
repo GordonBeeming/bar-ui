@@ -114,12 +114,10 @@ jobs:
             CODESIGN_IDENTITY="${CODESIGN_IDENTITY}" \
             CODESIGN_OPTS="--options runtime --timestamp"
 
-      # A bundle missing the helper or the resource bundle still signs and
-      # notarizes cleanly, then fails on the user's Mac, so check for both.
+      # Missing login-item helpers or icons can survive signing and notarization.
       - name: Verify bundle and signature
         run: |
           test -d dist/BarUI.app/Contents/Library/LoginItems/BarUIHelper.app
-          test -d dist/BarUI.app/Contents/Resources/BarUI_BarUICore.bundle
           test -f dist/BarUI.app/Contents/Resources/AppIcon.icns
           codesign --verify --deep --strict --verbose=2 dist/BarUI.app
 

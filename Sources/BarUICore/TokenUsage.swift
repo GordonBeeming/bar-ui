@@ -35,7 +35,7 @@ public struct TokenUsage: Sendable, Equatable {
 
     /// What each model used in one Bar App, by Token Type. Unlike
     /// `tokensByModel` this keeps Reasoning, so a page can show it; it must not
-    /// be priced or summed with the other types.
+    /// be added to the other types when summing totals.
     public func tokens(of app: BarApp) -> [String: [TokenType: Int64]] {
         tokensByAppAndModel[app] ?? [:]
     }

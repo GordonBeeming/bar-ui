@@ -8,8 +8,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BarUICore",
-            resources: [.copy("Resources")]
+            name: "BarUICore"
         ),
         .executableTarget(
             name: "BarUI",

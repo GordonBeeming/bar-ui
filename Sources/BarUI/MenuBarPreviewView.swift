@@ -78,9 +78,6 @@ private struct PreviewContent: View {
     let preview: MenuBarPreview
     let now: Date
 
-    @Environment(PricingCatalog.self) private var pricing
-    @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
-
     var body: some View {
         let usage = preview.tokenUsage(now: now)
         let pace = preview.pace(now: now)
@@ -111,14 +108,6 @@ private struct PreviewContent: View {
                     Text("tokens")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    // The currency symbol says what this is; the label only
-                    // took space.
-                    Text(cost(for: usage)?.value ?? "–")
-                        .font(.title3.weight(.bold))
-                        .monospacedDigit()
-                        .help(cost(for: usage)?.rateNote ?? "Loading prices")
-                        .accessibilityLabel("API Cost \(cost(for: usage)?.value ?? "loading")")
                 }
                 TokenKindSplit(totals: usage.totalByKind)
                 Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
@@ -129,16 +118,6 @@ private struct PreviewContent: View {
             HourlyChart(usage: usage)
         }
         .accessibilityElement(children: .contain)
-    }
-
-    private func cost(for usage: TokenUsage) -> ApiCostSummary? {
-        pricing.prices.map { prices in
-            ApiCostSummary(
-                cost: usage.apiCost(prices: prices),
-                currency: Currency(storedCode: currencyCode),
-                rates: pricing.rates
-            )
-        }
     }
 
     @ViewBuilder
