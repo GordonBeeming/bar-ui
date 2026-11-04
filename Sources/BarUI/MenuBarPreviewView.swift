@@ -108,8 +108,6 @@ private struct PreviewContent: View {
                     Text("tokens")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Spacer()
-
                 }
                 TokenKindSplit(totals: usage.totalByKind)
                 Text("\(DisplayFormat.tokens(pace.perHourNow))/h now · \(DisplayFormat.tokens(Int64(pace.perHourAverage.rounded())))/h avg")
