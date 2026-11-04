@@ -1,5 +1,4 @@
 import BarUICore
-import os
 import SwiftUI
 
 enum MainWindow {
@@ -8,12 +7,6 @@ enum MainWindow {
 
 @main
 struct BarUIApp: App {
-    private static let logger = Logger(subsystem: "com.gordonbeeming.BarUI", category: "Pricing")
-
-    /// Prices are re-checked hourly while the app stays open; the feeds only
-    /// download when their cached copy is more than a day old.
-    static let pricingCheckInterval: Duration = .seconds(3_600)
-
     /// Opened once for the app: every window shares one connection, and the
     /// shared overview skips a refresh while another window's is running.
     @State private var archive = ArchiveOpening.open()
@@ -22,7 +15,6 @@ struct BarUIApp: App {
         preferences: SystemPreferences(),
         homeDirectory: ContentView.home
     ))
-    @State private var pricing = PricingCatalog(cacheDirectory: Self.pricingCacheDirectory())
     @State private var openAtLogin = LoginItemSetting(
         service: LoginItemService.app,
         store: UserDefaultsChoiceStore(key: UserDefaultsChoiceStore.openAtLoginKey)
@@ -42,7 +34,6 @@ struct BarUIApp: App {
         Window("Bar UI", id: MainWindow.id) {
             ContentView(monitor: monitor, archive: archive)
                 .frame(minWidth: 900, minHeight: 600)
-                .environment(pricing)
         }
         .defaultSize(width: 1440, height: 900)
         // Never opened by a launch on its own: at login Bar UI stays in the
@@ -54,32 +45,17 @@ struct BarUIApp: App {
 
         MenuBarExtra {
             MenuBarPreviewView(preview: archive.preview, monitor: monitor, archiveFailure: archive.failure)
-                .environment(pricing)
         } label: {
             MenuBarLabel(
                 appDelegate: appDelegate,
                 openAtLogin: openAtLogin,
-                backgroundImport: backgroundImport,
-                pricing: pricing
+                backgroundImport: backgroundImport
             )
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(openAtLogin: openAtLogin, backgroundImport: backgroundImport)
-                .environment(pricing)
-        }
-    }
-
-    /// Caches rather than Application Support: both feeds can be downloaded
-    /// again, unlike the Archive.
-    static func pricingCacheDirectory() -> URL? {
-        do {
-            return try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                .appendingPathComponent("com.gordonbeeming.BarUI", isDirectory: true)
-        } catch {
-            logger.error("No cache folder for prices: \(error.localizedDescription, privacy: .public)")
-            return nil
         }
     }
 }

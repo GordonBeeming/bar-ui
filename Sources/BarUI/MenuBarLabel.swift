@@ -1,17 +1,15 @@
 import AppKit
 import BarUICore
-import os
 import SwiftUI
 
 /// The menu bar icon, and the work that has to happen on every launch. The
 /// label is the one view that exists from launch to quit whether or not the
-/// window is open, so it owns registering the login items, keeping prices
-/// current, and opening the window when Bar UI was opened by hand.
+/// window is open, so it owns registering the login items and opening the
+/// window when Bar UI was opened by hand.
 struct MenuBarLabel: View {
     let appDelegate: AppDelegate
     let openAtLogin: LoginItemSetting
     let backgroundImport: LoginItemSetting
-    let pricing: PricingCatalog
 
     @Environment(\.openWindow) private var openWindow
 
@@ -29,17 +27,6 @@ struct MenuBarLabel: View {
             .onChange(of: appDelegate.launchKind, initial: true) { _, kind in
                 if kind == .byHand {
                     showWindow()
-                }
-            }
-            .task {
-                while !Task.isCancelled {
-                    await pricing.refresh()
-                    do {
-                        try await Task.sleep(for: BarUIApp.pricingCheckInterval)
-                    } catch {
-                        // Cancelled as the app quits; stop checking.
-                        return
-                    }
                 }
             }
             .onChange(of: appDelegate.reopenRequests) {

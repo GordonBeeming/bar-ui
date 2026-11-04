@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Token usage per Bar App and model")
 struct TokenUsageByAppAndModelTests {
-    @Test("One Bar App's models keep reasoning, which the cost breakdown leaves out")
+    @Test("One Bar App's models keep reasoning separate from output")
     func perApp() {
         let usage = ModelTokensFixture.usage([
             ModelTokensFixture.sample(.output, app: .codexBar, model: "a", count: 5),

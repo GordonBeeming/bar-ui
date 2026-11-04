@@ -8,8 +8,6 @@ struct TokensSection: View {
     let overview: LimitsOverview
     let now: Date
 
-    @Environment(PricingCatalog.self) private var pricing
-    @AppStorage(CurrencySetting.key) private var currencyCode = Currency.default.rawValue
     @Binding var range: TimeRange
 
     var body: some View {
@@ -31,21 +29,7 @@ struct TokensSection: View {
 
             TokensChart(usage: usage, range: range)
 
-            TokenTiles(usage: usage, cost: apiCostSummary(for: usage))
-        }
-    }
-}
-
-extension TokensSection {
-    /// Nil until prices have loaded, which is only the first moment of a
-    /// launch: the bundled copy makes them available even offline.
-    fileprivate func apiCostSummary(for usage: TokenUsage) -> ApiCostSummary? {
-        pricing.prices.map { prices in
-            ApiCostSummary(
-                cost: usage.apiCost(prices: prices),
-                currency: Currency(storedCode: currencyCode),
-                rates: pricing.rates
-            )
+            TokenTiles(usage: usage)
         }
     }
 }
@@ -72,7 +56,6 @@ private struct TokensChart: View {
 
 private struct TokenTiles: View {
     let usage: TokenUsage
-    let cost: ApiCostSummary?
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: 16, alignment: .top)]
 
@@ -97,12 +80,6 @@ private struct TokenTiles: View {
                     ? "No input yet"
                     : "\(DisplayFormat.tokens(usage.cacheRead)) of \(DisplayFormat.tokens(usage.input)) input"
             )
-            TokenTile(
-                title: "API Cost",
-                value: cost?.value ?? "–",
-                detail: cost.map { $0.exclusionNote ?? "What it would cost at API prices" } ?? "Loading prices",
-                help: cost?.rateNote
-            )
         }
     }
 }
@@ -111,7 +88,6 @@ private struct TokenTile: View {
     let title: String
     let value: String
     let detail: String
-    var help: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -135,6 +111,5 @@ private struct TokenTile: View {
                 .strokeBorder(.separator, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .help(help ?? "")
     }
 }

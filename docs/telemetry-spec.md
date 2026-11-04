@@ -91,7 +91,7 @@ Both are written every sample, for every Limit the tool currently reports.
 
 | Attribute | Required | Meaning |
 |---|---|---|
-| `model` | yes | The model ID exactly as the tool reports it. When the tool reports usage without a model, the tokens still count, under the model `unknown`. Bar UI shows those as "No pricing". |
+| `model` | yes | The model ID exactly as the tool reports it. When the tool reports usage without a model, the tokens still count, under the model `unknown`. |
 | `token.type` | yes | One of the **Token Types** below |
 
 | `token.type` | Counts |
