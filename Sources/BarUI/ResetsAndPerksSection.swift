@@ -64,7 +64,7 @@ struct ResetsAndPerksSection: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(events) { event in
-                        EventRow(event: event, now: now, label: overview.seriesLabel(of: event.account), step: overview.colorStep(of: event.account))
+                        EventRow(event: event, now: now, label: overview.label(of: event), step: overview.colorStep(of: event))
                         if event.id != events.last?.id {
                             Divider()
                         }

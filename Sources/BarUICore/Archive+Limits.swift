@@ -332,16 +332,7 @@ extension Archive {
     /// Every Account of a Bar App that has anything in the Archive,
     /// the default first. A Bar App with nothing archived has none.
     public func accounts() throws -> [BarAppAccount] {
-        let statement = try prepare("""
-            SELECT app, account FROM limits_v2
-            UNION SELECT app, account FROM limit_samples_v2
-            UNION SELECT app, account FROM limit_resets_v2
-            UNION SELECT app, account FROM limit_events_v2
-            UNION SELECT app, account FROM token_samples_v2
-            UNION SELECT app, account FROM perk_points_v2
-            UNION SELECT app, account FROM perk_gone_events_v2
-            UNION SELECT app, account FROM perk_available_events_v2
-            """)
+        let statement = try prepare("SELECT app, account FROM accounts_v2")
         var accounts: [BarAppAccount] = []
         while try statement.step() {
             guard let app = knownApp(statement.text(at: 0), in: "limits"), let id = statement.text(at: 1) else {

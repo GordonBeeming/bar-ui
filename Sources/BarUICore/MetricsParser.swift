@@ -64,8 +64,10 @@ public enum MetricsParser {
             }
             return
         }
-        if let name = OTLPLines.accountName(in: resource), !names.contains(where: { $0.name == name }) {
-            names.append(AccountName(app: app, accountID: accountID, name: name))
+        if let name = OTLPLines.accountName(in: resource) {
+            let points = scopes.flatMap { $0.metrics ?? [] }.flatMap { ($0.gauge?.dataPoints ?? []) + ($0.sum?.dataPoints ?? []) }
+            let reportedAt = points.compactMap(\.timeUnixNano).max() ?? 0
+            OTLPLines.record(AccountName(app: app, accountID: accountID, name: name, reportedAt: reportedAt), in: &names)
         }
         for scope in scopes {
             guard OTLPLines.isConforming(scope: scope.scope, of: app) else {

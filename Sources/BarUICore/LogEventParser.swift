@@ -50,8 +50,9 @@ public enum LogEventParser {
                     }
                     continue
                 }
-                if let name = OTLPLines.accountName(in: resource), !records.accountNames.contains(where: { $0.name == name }) {
-                    records.accountNames.append(AccountName(app: app, accountID: accountID, name: name))
+                if let name = OTLPLines.accountName(in: resource) {
+                    let reportedAt = scopes.flatMap { $0.logRecords ?? [] }.compactMap { $0.timeUnixNano ?? $0.observedTimeUnixNano }.max() ?? 0
+                    OTLPLines.record(AccountName(app: app, accountID: accountID, name: name, reportedAt: reportedAt), in: &records.accountNames)
                 }
                 for scope in scopes {
                     guard OTLPLines.isConforming(scope: scope.scope, of: app) else {

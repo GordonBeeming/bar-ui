@@ -6,11 +6,16 @@ public struct AccountName: Sendable, Hashable {
     public let app: BarApp
     public let accountID: String
     public let name: String
+    /// The newest time of any point or event in the resource that carried the
+    /// name, in Unix nanoseconds. A rename is told from an older report of the
+    /// old name by this, not by the order files happen to be read in.
+    public let reportedAt: Int64
 
-    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, name: String) {
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, name: String, reportedAt: Int64 = 0) {
         self.app = app
         self.accountID = accountID
         self.name = name
+        self.reportedAt = reportedAt
     }
 }
 

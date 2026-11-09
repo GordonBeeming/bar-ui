@@ -104,8 +104,26 @@ public final class LimitsOverview {
 
     /// What to call an Account to a person: the name it gave itself, else its
     /// id, with `default` spelled as a word.
+    /// Two Accounts of one app that report the same name are told apart by
+    /// their ids.
     public func label(of account: BarAppAccount) -> String {
+        let name = baseLabel(of: account)
+        let clashes = accounts.contains { $0 != account && $0.app == account.app && baseLabel(of: $0) == name }
+        return clashes ? "\(name) (\(account.accountID))" : name
+    }
+
+    private func baseLabel(of account: BarAppAccount) -> String {
         accountNames[account] ?? (account.isDefault ? "Default" : account.accountID)
+    }
+
+    /// Tracking belongs to the Bar App, so its events carry no Account and are
+    /// named for the app; every other event is named for its Account.
+    public func label(of event: OverviewEvent) -> String {
+        event.kind == .trackingStarted ? event.app.displayName : seriesLabel(of: event.account)
+    }
+
+    public func colorStep(of event: OverviewEvent) -> Int {
+        event.kind == .trackingStarted ? 0 : colorStep(of: event.account)
     }
 
     /// The Events list for a range, newest first, from every Bar App.

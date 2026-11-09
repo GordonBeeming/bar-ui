@@ -126,6 +126,22 @@ extension Archive {
                 INSERT OR IGNORE INTO tracking_starts_v2 (app, time_unix_nano, interval_minutes)
                 VALUES (?1, ?2, ?3)
                 """)
+            // Any row for an Account lists it, so reading the Accounts never has
+            // to scan the sample tables.
+            let register = try prepare("INSERT OR IGNORE INTO accounts_v2 (app, account) VALUES (?1, ?2)")
+            var registered: Set<BarAppAccount> = []
+            func registerAccount(_ app: BarApp, _ accountID: String) throws {
+                if registered.insert(BarAppAccount(app: app, accountID: accountID)).inserted {
+                    try register.run(.text(app.rawValue), .text(accountID))
+                }
+            }
+            for sample in records.limitSamples { try registerAccount(sample.app, sample.accountID) }
+            for sample in records.tokenSamples { try registerAccount(sample.app, sample.accountID) }
+            for sample in records.perkSamples { try registerAccount(sample.app, sample.accountID) }
+            for reset in records.resets { try registerAccount(reset.app, reset.accountID) }
+            for event in records.perkGoneEvents { try registerAccount(event.app, event.accountID) }
+            for event in records.perkAvailableEvents { try registerAccount(event.app, event.accountID) }
+            for event in records.limitEvents { try registerAccount(event.app, event.accountID) }
             let insertAvailable = try prepare("""
                 INSERT OR IGNORE INTO perk_available_events_v2
                     (app, account, kind, currency, time_unix_nano, quantity, perk_id, expires_at)
@@ -246,18 +262,20 @@ extension Archive {
                     .text(event.accountID)
                 )
             }
-            // Files are imported oldest first, so the last name written is
-            // the newest one a Bar App reported.
+            // A report only replaces the stored name when it is at least as
+            // recent, so importing an older file after a newer one can't undo
+            // a rename.
             let upsertName = try prepare("""
-                INSERT INTO account_names (app, account, name, updated_at) VALUES (?1, ?2, ?3, ?4)
-                ON CONFLICT (app, account) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at
+                INSERT INTO account_names (app, account, name, reported_at) VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT (app, account) DO UPDATE SET name = excluded.name, reported_at = excluded.reported_at
+                WHERE excluded.reported_at >= account_names.reported_at
                 """)
             for name in records.accountNames {
                 try upsertName.run(
                     .text(name.app.rawValue),
                     .text(name.accountID),
                     .text(name.name),
-                    .integer(Int64(Date().timeIntervalSince1970))
+                    .integer(name.reportedAt)
                 )
             }
             try prepare("""

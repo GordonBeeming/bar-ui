@@ -63,6 +63,20 @@ struct ArchiveMigrationTests {
         }
     }
 
+    private static let accountUnion = """
+        SELECT app, account FROM limits_v2 UNION SELECT app, account FROM limit_samples_v2
+        UNION SELECT app, account FROM limit_resets_v2 UNION SELECT app, account FROM limit_events_v2
+        UNION SELECT app, account FROM token_samples_v2 UNION SELECT app, account FROM perk_points_v2
+        UNION SELECT app, account FROM perk_gone_events_v2 UNION SELECT app, account FROM perk_available_events_v2
+        """
+
+    /// The registry `accounts()` reads has to hold exactly the Accounts the
+    /// tables do, which is what scanning them used to answer.
+    private func expectRegistryMatchesTables(in url: URL, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        #expect(try scalar("SELECT COUNT(*) FROM (SELECT app, account FROM (\(Self.accountUnion)) EXCEPT SELECT app, account FROM accounts_v2)", in: url) == 0, "an Account is missing from the registry", sourceLocation: sourceLocation)
+        #expect(try scalar("SELECT COUNT(*) FROM (SELECT app, account FROM accounts_v2 EXCEPT SELECT app, account FROM (\(Self.accountUnion)))", in: url) == 0, "the registry lists an Account no table has", sourceLocation: sourceLocation)
+    }
+
     private func count(_ table: String, in url: URL) throws -> Int {
         Int(try scalar("SELECT COUNT(*) FROM \(table)", in: url))
     }
@@ -79,6 +93,8 @@ struct ArchiveMigrationTests {
         }
         #expect(try scalar("PRAGMA user_version", in: url) == 2)
         #expect(try scalar("SELECT COUNT(*) FROM perk_gone_events_v2 WHERE account = 'default'", in: url) == 2)
+        #expect(try scalar("SELECT COUNT(*) FROM accounts_v2", in: url) == 2)
+        try expectRegistryMatchesTables(in: url)
     }
 
     @Test("Existing rows read as the default Account, and the Account is in every series key")
@@ -214,6 +230,10 @@ struct ArchiveMigrationTests {
         // The offsets the upgraded file already had win over the older build's.
         #expect(try await archive.progress(of: .claudeBar, fileName: "claudebar-metrics-2026-10-12.jsonl")?.byteOffset == 4321)
 
+        // grokBar only exists in what the older build wrote, and it is listed.
+        #expect(try await archive.accounts().contains(BarAppAccount(app: .grokBar)))
+        try expectRegistryMatchesTables(in: url)
+
         // Opening again, with nothing new from an older build, changes nothing.
         let again = try Archive(url: url)
         _ = again
@@ -338,6 +358,7 @@ struct ArchiveMigrationTests {
             BarAppAccount(app: .claudeBar, accountID: "work"),
             BarAppAccount(app: .codexBar, accountID: "side")
         ])
+        try expectRegistryMatchesTables(in: folder.url.appendingPathComponent("Archive.sqlite"))
     }
 
     @Test("A new Archive is created at version 2 with Accounts in its keys")
@@ -354,7 +375,8 @@ struct ArchiveMigrationTests {
     @Test("A second Account's samples sit beside the first's without touching them")
     func accountsAreSeparateSeries() async throws {
         let folder = try TemporaryFolder()
-        let archive = try Archive(url: try copyOfVersionOne(in: folder))
+        let url = try copyOfVersionOne(in: folder)
+        let archive = try Archive(url: url)
         let weekly = LimitDescriptor(id: "weekly_all", name: "Weekly (all models)", windowDurationMinutes: 10080, modelID: nil)
         let progress = ImportProgress(app: .claudeBar, fileName: "claudebar.asfaudits-metrics-2026-10-12.jsonl", byteOffset: 1, droppedRecords: 0)
 
@@ -371,6 +393,8 @@ struct ArchiveMigrationTests {
         #expect(try await archive.samples(of: .claudeBar, limitID: "weekly_all", metric: .utilization).map(\.value) == [40, 42])
         #expect(try await archive.samples(of: .claudeBar, account: "asfaudits", limitID: "weekly_all", metric: .utilization).map(\.value) == [77])
         #expect(try await archive.accountNames() == [BarAppAccount(app: .claudeBar, accountID: "asfaudits"): "gbeeming@asfaudits.com.au"])
+        #expect(try await archive.accounts().contains(BarAppAccount(app: .claudeBar, accountID: "asfaudits")))
+        try expectRegistryMatchesTables(in: url)
     }
 
     @Test("Two Accounts' token counters are not read as one counter that restarts")

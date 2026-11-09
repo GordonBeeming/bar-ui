@@ -56,7 +56,7 @@ struct ResetsChart: View {
                     // lift each onto the one before it.
                     stacking: .unstacked
                 )
-                .foregroundStyle(by: .value("Account", series(of: placed.bar.account)?.label ?? placed.bar.app.displayName))
+                .foregroundStyle(by: .value("Account", placed.bar.account.id))
                 .cornerRadius(3)
                 .offset(x: placed.offset)
             }
@@ -86,7 +86,8 @@ struct ResetsChart: View {
         }
         .edgeSafeTimeAxis(unit: unit, span: data.domain, desiredCount: 6)
         .chartForegroundStyleScale(
-            domain: series.map(\.label),
+            // Keyed by identity, not by label: two Accounts can report the same name.
+            domain: series.map(\.account.id),
             range: series.map(\.color)
         )
         .chartLegend(.hidden)

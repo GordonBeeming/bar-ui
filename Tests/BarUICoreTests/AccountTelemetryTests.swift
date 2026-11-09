@@ -71,7 +71,9 @@ struct AccountParsingTests {
         #expect(!read.limitSamples.isEmpty)
         #expect(read.limitSamples.allSatisfy { $0.accountID == "asfaudits" })
         #expect(read.tokenSamples.allSatisfy { $0.accountID == "asfaudits" })
-        #expect(read.accountNames == [AccountName(app: .claudeBar, accountID: "asfaudits", name: "gbeeming@asfaudits.com.au")])
+        #expect(read.accountNames.map(\.name) == ["gbeeming@asfaudits.com.au"])
+        #expect(read.accountNames.map(\.accountID) == ["asfaudits"])
+        #expect(read.accountNames.first?.reportedAt ?? 0 > 0)
 
         let wrongID = MetricsParser.parse(mismatched, from: .claudeBar, account: "asfaudits")
         #expect(wrongID.limitSamples.isEmpty)

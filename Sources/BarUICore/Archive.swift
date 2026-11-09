@@ -60,6 +60,7 @@ public actor Archive {
             if try needsUpgrade(database) {
                 try execute(versionTwoSchema, on: database, operation: "create its tables")
                 try foldInVersionOneTables(in: database)
+                try execute(Self.registerAccountsFromSamples, on: database, operation: "list its Accounts")
                 try execute("PRAGMA user_version = \(schemaVersion)", on: database, operation: "record its version")
             }
             try execute("COMMIT", on: database, operation: "finish upgrading its schema")
@@ -88,7 +89,7 @@ public actor Archive {
     /// that holds rows still to be folded in.
     private static func needsUpgrade(_ database: OpaquePointer) throws -> Bool {
         let existing = try tableNames(in: database)
-        return !Set(foldedTables.map(\.name)).isSubset(of: existing)
+        return !Set(foldedTables.map(\.name) + [accountRegistry]).isSubset(of: existing)
             || !existing.isDisjoint(with: foldedTables.map(\.legacyName) + [legacyPerkSamples])
     }
 
@@ -305,11 +306,16 @@ public actor Archive {
             );
             CREATE UNIQUE INDEX IF NOT EXISTS perk_available_events_v2_identity ON perk_available_events_v2 (
                 app, account, kind, currency, time_unix_nano, perk_id, IFNULL(quantity, -1), IFNULL(expires_at, -1));
+            CREATE TABLE IF NOT EXISTS accounts_v2 (
+                app TEXT NOT NULL,
+                account TEXT NOT NULL,
+                PRIMARY KEY (app, account)
+            ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS account_names (
                 app TEXT NOT NULL,
                 account TEXT NOT NULL,
                 name TEXT NOT NULL,
-                updated_at INTEGER NOT NULL,
+                reported_at INTEGER NOT NULL,
                 PRIMARY KEY (app, account)
             ) WITHOUT ROWID;
         """
@@ -345,6 +351,24 @@ public actor Archive {
     ]
 
     private static let legacyPerkSamples = "perk_samples"
+
+    static let accountRegistry = "accounts_v2"
+
+    /// Every Account that has a row anywhere. The registry is what `accounts()`
+    /// reads, so listing them doesn't scan the sample tables on every import
+    /// pass; this fills it for rows that were there before it existed or came
+    /// back from an older build. `record` keeps it current after that.
+    private static let registerAccountsFromSamples = """
+        INSERT OR IGNORE INTO accounts_v2 (app, account)
+            SELECT app, account FROM limits_v2
+            UNION SELECT app, account FROM limit_samples_v2
+            UNION SELECT app, account FROM limit_resets_v2
+            UNION SELECT app, account FROM limit_events_v2
+            UNION SELECT app, account FROM token_samples_v2
+            UNION SELECT app, account FROM perk_points_v2
+            UNION SELECT app, account FROM perk_gone_events_v2
+            UNION SELECT app, account FROM perk_available_events_v2
+        """
 
     /// Moves every row of the version 1 tables into the version 2 ones as the
     /// `default` Account, then drops them. It runs on every open that finds

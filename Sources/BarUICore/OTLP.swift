@@ -38,7 +38,33 @@ enum OTLPLines {
     static func isConforming(resource attributes: [KeyValue], of app: BarApp, account accountID: String = BarAppAccount.defaultID) -> Bool {
         attributes.string("bar.spec.version") == "1"
             && attributes.string("service.name") == app.serviceName
-            && (attributes.string("account.id") ?? BarAppAccount.defaultID) == accountID
+            && accountMatches(attributes, accountID)
+    }
+
+    /// Only an absent `account.id` means `default`. One that is present has to
+    /// be a string that follows the id grammar and equals the file's Account;
+    /// a value of another type is a broken record, not a missing one.
+    private static func accountMatches(_ attributes: [KeyValue], _ accountID: String) -> Bool {
+        guard let attribute = attributes.first(where: { $0.key == "account.id" }) else {
+            return accountID == BarAppAccount.defaultID
+        }
+        guard let value = attribute.value, !value.isMalformed, let id = value.stringValue, BarAppAccount.isValidID(id) else {
+            return false
+        }
+        return id == accountID
+    }
+
+    /// Keeps the name with the newest report per Account. On equal times the
+    /// later one read wins, so a file that is appended to still ends on the
+    /// last name written.
+    static func record(_ name: AccountName, in names: inout [AccountName]) {
+        guard let index = names.firstIndex(where: { $0.app == name.app && $0.accountID == name.accountID }) else {
+            names.append(name)
+            return
+        }
+        if name.reportedAt >= names[index].reportedAt {
+            names[index] = name
+        }
     }
 
     /// The label the Bar App gave the Account, for showing to people.
