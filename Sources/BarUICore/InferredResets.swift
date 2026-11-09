@@ -32,12 +32,13 @@ public enum InferredResets {
     /// oldest first.
     public static func rollovers(
         app: BarApp,
+        account: String = BarAppAccount.defaultID,
         limit: LimitDescriptor,
         resetsAt: [ArchivedSample],
         utilization: [ArchivedSample],
         logged: [LimitReset]
     ) -> [LimitReset] {
-        let found = detected(app: app, limit: limit, in: polls(resetsAt: resetsAt, utilization: utilization))
+        let found = detected(app: app, account: account, limit: limit, in: polls(resetsAt: resetsAt, utilization: utilization))
         return unlogged(found, logged: logged, windowMinutes: limit.windowDurationMinutes)
     }
 
@@ -54,7 +55,7 @@ public enum InferredResets {
     /// Every rollover between consecutive polls, whether or not it was logged.
     /// Doesn't depend on the logged resets, so a caller can keep these and
     /// extend them with newer polls.
-    static func detected(app: BarApp, limit: LimitDescriptor, in polls: [Poll]) -> [LimitReset] {
+    static func detected(app: BarApp, account: String, limit: LimitDescriptor, in polls: [Poll]) -> [LimitReset] {
         var found: [LimitReset] = []
         for (before, after) in zip(polls, polls.dropFirst()) {
             guard rolledOver(before: before, after: after, windowMinutes: limit.windowDurationMinutes) else {
@@ -62,6 +63,7 @@ public enum InferredResets {
             }
             found.append(LimitReset(
                 app: app,
+                accountID: account,
                 limit: limit,
                 timeUnixNano: after.time,
                 utilizationLast: before.usage,

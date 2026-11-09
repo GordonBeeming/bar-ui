@@ -8,6 +8,11 @@ import SwiftUI
 struct ResetsChart: View {
     let data: ResetsChartData
     let unit: Calendar.Component
+    let series: [ResetsChartSeries]
+
+    private func series(of account: BarAppAccount) -> ResetsChartSeries? {
+        series.first { $0.account == account }
+    }
 
     @State private var pointerDate: Date?
 
@@ -51,7 +56,7 @@ struct ResetsChart: View {
                     // lift each onto the one before it.
                     stacking: .unstacked
                 )
-                .foregroundStyle(by: .value("Bar App", placed.bar.app.displayName))
+                .foregroundStyle(by: .value("Account", placed.bar.account.id))
                 .cornerRadius(3)
                 .offset(x: placed.offset)
             }
@@ -59,7 +64,7 @@ struct ResetsChart: View {
                 PointMark(x: .value("Perk", perk.date), y: .value("Perk", Self.perkRowValue))
                     .symbol(.diamond)
                     .symbolSize(70)
-                    .foregroundStyle(perk.app.brandColor)
+                    .foregroundStyle(series(of: perk.account)?.color ?? perk.app.brandColor)
             }
             if let moment {
                 HoverRule(date: moment.date, extent: data.domain) {
@@ -81,8 +86,9 @@ struct ResetsChart: View {
         }
         .edgeSafeTimeAxis(unit: unit, span: data.domain, desiredCount: 6)
         .chartForegroundStyleScale(
-            domain: BarApp.allCases.map(\.displayName),
-            range: BarApp.allCases.map(\.brandColor)
+            // Keyed by identity, not by label: two Accounts can report the same name.
+            domain: series.map(\.account.id),
+            range: series.map(\.color)
         )
         .chartLegend(.hidden)
         .chartXSelection(value: $pointerDate)
@@ -92,12 +98,12 @@ struct ResetsChart: View {
     private func callout(for moment: ResetsChartData.Moment) -> some View {
         ChartCallout {
             ForEach(moment.bars) { bar in
-                Text("\(bar.app.displayName) · \(bar.limitName) reset")
+                Text("\(series(of: bar.account)?.label ?? bar.app.displayName) · \(bar.limitName) reset")
                     .fontWeight(.semibold)
                 Text("\(DisplayFormat.points(Int(bar.unusedPercent.rounded()))) unused")
             }
             ForEach(moment.perks) { perk in
-                Text("\(perk.app.displayName) · \(perk.title)")
+                Text("\(series(of: perk.account)?.label ?? perk.app.displayName) · \(perk.title)")
                     .fontWeight(.semibold)
                 Text(perk.detail)
             }
@@ -107,18 +113,44 @@ struct ResetsChart: View {
     }
 }
 
-/// The chart's key: each Bar App's colour and the Perk diamond.
+/// One line of the chart: an Account, named and coloured. Every Bar App is
+/// listed even before it has an Account, so the key doesn't jump around.
+struct ResetsChartSeries: Equatable {
+    let account: BarAppAccount
+    let label: String
+    let color: Color
+
+    @MainActor
+    static func all(in overview: LimitsOverview) -> [ResetsChartSeries] {
+        let known = overview.accounts
+        let placeholders = BarApp.allCases
+            .filter { app in !known.contains { $0.app == app } }
+            .map { BarAppAccount(app: $0) }
+        return (known + placeholders).sorted()
+            .map { account in
+                ResetsChartSeries(
+                    account: account,
+                    label: overview.seriesLabel(of: account),
+                    color: account.app.brandColor(step: overview.colorStep(of: account))
+                )
+            }
+    }
+}
+
+/// The chart's key: each Account's colour and the Perk diamond.
 struct ResetsChartLegend: View {
+    let series: [ResetsChartSeries]
+
     var body: some View {
         HStack(spacing: 16) {
             Text("How much of each Window went unused when it reset")
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            ForEach(BarApp.allCases, id: \.self) { app in
+            ForEach(series, id: \.account) { line in
                 Label {
-                    Text(app.displayName)
+                    Text(line.label)
                 } icon: {
-                    RoundedRectangle(cornerRadius: 2).fill(app.brandColor).frame(width: 10, height: 10)
+                    RoundedRectangle(cornerRadius: 2).fill(line.color).frame(width: 10, height: 10)
                 }
             }
             Label {

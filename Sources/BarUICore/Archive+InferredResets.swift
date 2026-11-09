@@ -18,23 +18,23 @@ extension Archive {
     /// Samples are kept forever and polled every few minutes, so this extends
     /// what it found last time with newer polls instead of rescanning them all
     /// on each refresh.
-    func detectedRollovers(of app: BarApp, limit: LimitDescriptor) throws -> [LimitReset] {
-        let key = "\(app.rawValue)/\(limit.id)"
+    func detectedRollovers(of app: BarApp, account: String, limit: LimitDescriptor) throws -> [LimitReset] {
+        let key = "\(app.rawValue)/\(account)/\(limit.id)"
         if let cached = rolloverCache[key],
            cached.windowMinutes == limit.windowDurationMinutes,
-           try resetsAtSampleCount(of: app, limitID: limit.id, through: cached.lastPoll.time) == cached.samplesThrough {
+           try resetsAtSampleCount(of: app, account: account, limitID: limit.id, through: cached.lastPoll.time) == cached.samplesThrough {
             let newer = InferredResets.polls(
-                resetsAt: try samples(of: app, limitID: limit.id, metric: .resetsAt, since: cached.lastPoll.time + 1),
-                utilization: try samples(of: app, limitID: limit.id, metric: .utilization, since: cached.lastPoll.time + 1)
+                resetsAt: try samples(of: app, account: account, limitID: limit.id, metric: .resetsAt, since: cached.lastPoll.time + 1),
+                utilization: try samples(of: app, account: account, limitID: limit.id, metric: .utilization, since: cached.lastPoll.time + 1)
             )
             guard let newest = newer.last else {
                 return cached.resets
             }
-            let found = InferredResets.detected(app: app, limit: limit, in: [cached.lastPoll] + newer)
+            let found = InferredResets.detected(app: app, account: account, limit: limit, in: [cached.lastPoll] + newer)
             let updated = DetectedRollovers(
                 windowMinutes: limit.windowDurationMinutes,
                 lastPoll: newest,
-                samplesThrough: try resetsAtSampleCount(of: app, limitID: limit.id, through: newest.time),
+                samplesThrough: try resetsAtSampleCount(of: app, account: account, limitID: limit.id, through: newest.time),
                 resets: cached.resets + found
             )
             rolloverCache[key] = updated
@@ -42,15 +42,15 @@ extension Archive {
         }
 
         let polls = InferredResets.polls(
-            resetsAt: try samples(of: app, limitID: limit.id, metric: .resetsAt, since: Int64.min),
-            utilization: try samples(of: app, limitID: limit.id, metric: .utilization, since: Int64.min)
+            resetsAt: try samples(of: app, account: account, limitID: limit.id, metric: .resetsAt, since: Int64.min),
+            utilization: try samples(of: app, account: account, limitID: limit.id, metric: .utilization, since: Int64.min)
         )
-        let found = InferredResets.detected(app: app, limit: limit, in: polls)
+        let found = InferredResets.detected(app: app, account: account, limit: limit, in: polls)
         if let newest = polls.last {
             rolloverCache[key] = DetectedRollovers(
                 windowMinutes: limit.windowDurationMinutes,
                 lastPoll: newest,
-                samplesThrough: try resetsAtSampleCount(of: app, limitID: limit.id, through: newest.time),
+                samplesThrough: try resetsAtSampleCount(of: app, account: account, limitID: limit.id, through: newest.time),
                 resets: found
             )
         } else {
@@ -59,12 +59,12 @@ extension Archive {
         return found
     }
 
-    private func resetsAtSampleCount(of app: BarApp, limitID: String, through time: Int64) throws -> Int {
+    private func resetsAtSampleCount(of app: BarApp, account: String, limitID: String, through time: Int64) throws -> Int {
         let statement = try prepare("""
-            SELECT COUNT(*) FROM limit_samples
-            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano <= ?4
+            SELECT COUNT(*) FROM limit_samples_v2
+            WHERE app = ?1 AND limit_id = ?2 AND metric = ?3 AND time_unix_nano <= ?4 AND account = ?5
             """)
-        try statement.bind(.text(app.rawValue), .text(limitID), .text(LimitMetric.resetsAt.rawValue), .integer(time))
+        try statement.bind(.text(app.rawValue), .text(limitID), .text(LimitMetric.resetsAt.rawValue), .integer(time), .text(account))
         return try statement.step() ? Int(statement.int64(at: 0)) : 0
     }
 }

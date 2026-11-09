@@ -32,14 +32,16 @@ public struct LimitDescriptor: Sendable, Hashable {
 /// One data point of a Limit metric, as read from a Bar App's metrics file.
 public struct LimitSample: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let limit: LimitDescriptor
     public let metric: LimitMetric
     public let timeUnixNano: Int64
     /// Percent used (0 to 100) for utilisation; Unix seconds for a reset time.
     public let value: Double
 
-    public init(app: BarApp, limit: LimitDescriptor, metric: LimitMetric, timeUnixNano: Int64, value: Double) {
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, limit: LimitDescriptor, metric: LimitMetric, timeUnixNano: Int64, value: Double) {
         self.app = app
+        self.accountID = accountID
         self.limit = limit
         self.metric = metric
         self.timeUnixNano = timeUnixNano

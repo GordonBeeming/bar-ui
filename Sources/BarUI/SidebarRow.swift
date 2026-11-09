@@ -6,6 +6,10 @@ struct SidebarRow: View {
     let item: SidebarItem
     /// Only set for Bar App rows.
     var barAppState: TrackingState?
+    /// What an Account row says, such as its email address.
+    var accountTitle: String?
+    /// The shade of the Bar App's colour the Account's dot is drawn in.
+    var accountStep = 0
 
     var body: some View {
         switch item {
@@ -23,6 +27,18 @@ struct SidebarRow: View {
                 BarAppTile(app: app)
             }
             .accessibilityElement(children: .combine)
+        case .account(let account):
+            Label {
+                Text(accountTitle ?? item.title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } icon: {
+                Circle()
+                    .fill(account.app.brandColor(step: accountStep))
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+            }
+            .padding(.leading, 6)
         case .archive(let page):
             Label(item.title, systemImage: page.systemImage)
         }

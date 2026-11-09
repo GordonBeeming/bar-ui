@@ -27,6 +27,11 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
     public var unusedPercent: Double? = nil
     /// The reset Limit's name ("Weekly"); nil for every other kind of event.
     public var limitName: String? = nil
+    public var accountID: String = BarAppAccount.defaultID
+
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
 
     /// An event about a Window under a day, like Session (5h). A Window of
     /// unknown length isn't counted, so nothing is hidden on a guess.
@@ -58,7 +63,7 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
         for history in histories {
             for reset in history.resets {
                 events.append(OverviewEvent(
-                    id: "reset/\(history.app.rawValue)/\(history.limit.id)/\(reset.timeUnixNano)",
+                    id: "reset/\(history.account.key)/\(history.limit.id)/\(reset.timeUnixNano)",
                     app: history.app,
                     kind: .limitReset,
                     title: "\(reset.limit.name) reset",
@@ -66,7 +71,8 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                     date: Date(unixNano: reset.timeUnixNano),
                     windowMinutes: history.limit.windowDurationMinutes,
                     unusedPercent: 100 - reset.utilizationLast,
-                    limitName: reset.limit.name
+                    limitName: reset.limit.name,
+                    accountID: history.accountID
                 ))
             }
             events += crossings(in: history)
@@ -75,7 +81,7 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
         for event in limitEvents {
             let appeared = event.kind == .appeared
             events.append(OverviewEvent(
-                id: "limit-\(event.kind.rawValue)/\(event.app.rawValue)/\(event.limit.id)/\(event.timeUnixNano)",
+                id: "limit-\(event.kind.rawValue)/\(event.account.key)/\(event.limit.id)/\(event.timeUnixNano)",
                 app: event.app,
                 kind: appeared ? .limitAppeared : .limitDisappeared,
                 title: "\(event.limit.name) \(event.kind.rawValue)",
@@ -83,7 +89,8 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                     ? LimitHistoryRow.windowText(minutes: event.limit.windowDurationMinutes)
                     : "The Bar App stopped reporting it",
                 date: Date(unixNano: event.timeUnixNano),
-                windowMinutes: event.limit.windowDurationMinutes
+                windowMinutes: event.limit.windowDurationMinutes,
+                accountID: event.accountID
             ))
         }
 
@@ -107,24 +114,26 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
                 detail += " · expires \(expiry.formatted(style))"
             }
             events.append(OverviewEvent(
-                id: "perk-available/\(event.app.rawValue)/\(event.kind.rawValue)/\(event.currency ?? "")/\(event.perkID ?? "")/\(event.quantity ?? -1)/\(event.timeUnixNano)",
+                id: "perk-available/\(event.account.key)/\(event.kind.rawValue)/\(event.currency ?? "")/\(event.perkID ?? "")/\(event.quantity ?? -1)/\(event.timeUnixNano)",
                 app: event.app,
                 kind: .perkAvailable,
                 title: "\(PerkText.title(of: event.kind)) available",
                 detail: detail,
-                date: Date(unixNano: event.timeUnixNano)
+                date: Date(unixNano: event.timeUnixNano),
+                accountID: event.accountID
             ))
         }
 
         for perk in gonePerks {
             let quantity = PerkText.quantity(kind: perk.kind, quantity: perk.quantity, currency: perk.currency, locale: locale)
             events.append(OverviewEvent(
-                id: "perk-gone/\(perk.app.rawValue)/\(perk.kind.rawValue)/\(perk.currency ?? "")/\(perk.perkID ?? "")/\(perk.quantity ?? -1)/\(perk.goneAt.timeIntervalSince1970)",
+                id: "perk-gone/\(perk.account.key)/\(perk.kind.rawValue)/\(perk.currency ?? "")/\(perk.perkID ?? "")/\(perk.quantity ?? -1)/\(perk.goneAt.timeIntervalSince1970)",
                 app: perk.app,
                 kind: .perkGone,
                 title: "\(PerkText.title(of: perk.kind)) gone",
                 detail: "\(quantity) · \(PerkText.label(for: perk.reason))",
-                date: perk.goneAt
+                date: perk.goneAt,
+                accountID: perk.accountID
             ))
         }
 
@@ -167,13 +176,14 @@ public struct OverviewEvent: Sendable, Hashable, Identifiable {
             reached = severity
             let kind: Kind = severity == .nearLimit ? .nearLimit : .runningLow
             events.append(OverviewEvent(
-                id: "\(kind)/\(history.app.rawValue)/\(history.limit.id)/\(sample.timeUnixNano)",
+                id: "\(kind)/\(history.account.key)/\(history.limit.id)/\(sample.timeUnixNano)",
                 app: history.app,
                 kind: kind,
                 title: "\(history.limit.name) \(severity == .nearLimit ? "near limit" : "running low")",
                 detail: "Reached \(Int(sample.value.rounded()))% used",
                 date: Date(unixNano: sample.timeUnixNano),
-                windowMinutes: history.limit.windowDurationMinutes
+                windowMinutes: history.limit.windowDurationMinutes,
+                accountID: history.accountID
             ))
         }
         return events

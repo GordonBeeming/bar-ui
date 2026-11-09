@@ -27,13 +27,13 @@ public enum MetricsParser {
         (scope.metrics ?? []).contains { isReadMetric($0.name) }
     }
 
-    public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
+    public static func parse(_ data: Data, from app: BarApp, account accountID: String = BarAppAccount.defaultID) -> TelemetryParseResult {
         var records = TelemetryRecords()
         var perks = PerkAccumulator()
         var dropped = 0
         let lines = OTLPLines.forEachRequest(in: data, as: ExportMetricsServiceRequest.self) { request in
             for resourceMetrics in request.resourceMetrics ?? [] {
-                read(resourceMetrics, from: app, into: &records.limitSamples, tokens: &records.tokenSamples, perks: &perks, dropped: &dropped)
+                read(resourceMetrics, from: app, account: accountID, into: &records.limitSamples, tokens: &records.tokenSamples, perks: &perks, names: &records.accountNames, dropped: &dropped)
             }
         }
         records.perkSamples = perks.samples
@@ -43,15 +43,17 @@ public enum MetricsParser {
     private static func read(
         _ resourceMetrics: ResourceMetrics,
         from app: BarApp,
+        account accountID: String,
         into samples: inout [LimitSample],
         tokens: inout [TokenSample],
         perks: inout PerkAccumulator,
+        names: inout [AccountName],
         dropped: inout Int
     ) {
         let resource = resourceMetrics.resource?.attributes ?? []
         // A record from another spec version or another Bar App can't be read
         // as this one's, so the whole resource goes rather than part of it.
-        guard OTLPLines.isConforming(resource: resource, of: app) else {
+        guard OTLPLines.isConforming(resource: resource, of: app, account: accountID) else {
             dropped += 1
             return
         }
@@ -61,6 +63,11 @@ public enum MetricsParser {
                 dropped += 1
             }
             return
+        }
+        if let name = OTLPLines.accountName(in: resource) {
+            let points = scopes.flatMap { $0.metrics ?? [] }.flatMap { ($0.gauge?.dataPoints ?? []) + ($0.sum?.dataPoints ?? []) }
+            let reportedAt = points.compactMap(\.timeUnixNano).max() ?? 0
+            OTLPLines.record(AccountName(app: app, accountID: accountID, name: name, reportedAt: reportedAt), in: &names)
         }
         for scope in scopes {
             guard OTLPLines.isConforming(scope: scope.scope, of: app) else {
@@ -81,7 +88,7 @@ public enum MetricsParser {
                     continue
                 }
                 if metric.name == Self.tokensMetricName {
-                    readTokens(metric, from: app, into: &tokens, dropped: &dropped)
+                    readTokens(metric, from: app, account: accountID, into: &tokens, dropped: &dropped)
                     continue
                 }
                 if metric.name == PerkSample.metricName {
@@ -90,7 +97,7 @@ public enum MetricsParser {
                         continue
                     }
                     for point in gauge.dataPoints ?? [] {
-                        if let sample = perkSample(from: point, app: app) {
+                        if let sample = perkSample(from: point, app: app, account: accountID) {
                             perks.add(sample)
                         } else {
                             dropped += 1
@@ -106,7 +113,7 @@ public enum MetricsParser {
                     continue
                 }
                 for point in gauge.dataPoints ?? [] {
-                    if let sample = sample(from: point, metric: limitMetric, app: app) {
+                    if let sample = sample(from: point, metric: limitMetric, app: app, account: accountID) {
                         samples.append(sample)
                     } else {
                         dropped += 1
@@ -119,6 +126,7 @@ public enum MetricsParser {
     private static func readTokens(
         _ metric: Metric,
         from app: BarApp,
+        account accountID: String,
         into tokens: inout [TokenSample],
         dropped: inout Int
     ) {
@@ -129,7 +137,7 @@ public enum MetricsParser {
             return
         }
         for point in sum.dataPoints ?? [] {
-            if let sample = tokenSample(from: point, app: app) {
+            if let sample = tokenSample(from: point, app: app, account: accountID) {
                 tokens.append(sample)
             } else {
                 dropped += 1
@@ -137,7 +145,7 @@ public enum MetricsParser {
         }
     }
 
-    private static func tokenSample(from point: NumberDataPoint, app: BarApp) -> TokenSample? {
+    private static func tokenSample(from point: NumberDataPoint, app: BarApp, account accountID: String) -> TokenSample? {
         let attributes = point.attributes ?? []
         guard !point.isMalformed,
               let model = attributes.string("model"), !model.isEmpty,
@@ -147,10 +155,10 @@ public enum MetricsParser {
               let value = point.value, value >= 0, let count = Int64(exactly: value) else {
             return nil
         }
-        return TokenSample(app: app, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
+        return TokenSample(app: app, accountID: accountID, model: model, tokenType: tokenType, startTimeUnixNano: start, timeUnixNano: time, count: count)
     }
 
-    private static func perkSample(from point: NumberDataPoint, app: BarApp) -> PerkSample? {
+    private static func perkSample(from point: NumberDataPoint, app: BarApp, account accountID: String) -> PerkSample? {
         let attributes = point.attributes ?? []
         guard !point.isMalformed,
               let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
@@ -162,6 +170,7 @@ public enum MetricsParser {
         }
         return PerkSample(
             app: app,
+            accountID: accountID,
             kind: kind,
             currency: currency.value,
             timeUnixNano: time,
@@ -171,7 +180,7 @@ public enum MetricsParser {
         )
     }
 
-    private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp) -> LimitSample? {
+    private static func sample(from point: NumberDataPoint, metric: LimitMetric, app: BarApp, account accountID: String) -> LimitSample? {
         let attributes = point.attributes ?? []
         guard !point.isMalformed,
               let limit = OTLPLines.limitDescriptor(from: attributes),
@@ -187,7 +196,7 @@ public enum MetricsParser {
             guard value > 0 else { return nil }
         }
 
-        return LimitSample(app: app, limit: limit, metric: metric, timeUnixNano: time, value: value)
+        return LimitSample(app: app, accountID: accountID, limit: limit, metric: metric, timeUnixNano: time, value: value)
     }
 }
 

@@ -23,6 +23,7 @@ public enum TokenType: String, Sendable, Hashable, CaseIterable {
 /// counted for a model and Token Type since `startTimeUnixNano`.
 public struct TokenSample: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let model: String
     public let tokenType: TokenType
     /// When the count began. A different start than the previous point means
@@ -32,8 +33,9 @@ public struct TokenSample: Sendable, Hashable {
     /// The running total at `timeUnixNano`.
     public let count: Int64
 
-    public init(app: BarApp, model: String, tokenType: TokenType, startTimeUnixNano: Int64, timeUnixNano: Int64, count: Int64) {
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, model: String, tokenType: TokenType, startTimeUnixNano: Int64, timeUnixNano: Int64, count: Int64) {
         self.app = app
+        self.accountID = accountID
         self.model = model
         self.tokenType = tokenType
         self.startTimeUnixNano = startTimeUnixNano

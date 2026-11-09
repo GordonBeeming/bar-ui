@@ -5,15 +5,15 @@ extension Archive {
 
     public func limitLifecycleEvents(since: Date? = nil) throws -> [LimitLifecycleEvent] {
         let statement = try prepare("""
-            SELECT app, limit_id, kind, time_unix_nano, name, window_minutes, model_id
-            FROM limit_events
+            SELECT app, limit_id, kind, time_unix_nano, name, window_minutes, model_id, account
+            FROM limit_events_v2
             WHERE time_unix_nano >= ?1
             ORDER BY time_unix_nano, app, limit_id
             """)
         try statement.bind(.integer(since?.unixNano ?? Int64.min))
         var events: [LimitLifecycleEvent] = []
         while try statement.step() {
-            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+            guard let app = knownApp(statement.text(at: 0), in: "limit_events_v2"),
                   let id = statement.text(at: 1),
                   let kindName = statement.text(at: 2), let kind = LimitLifecycleEvent.Kind(rawValue: kindName),
                   let name = statement.text(at: 4) else {
@@ -21,6 +21,7 @@ extension Archive {
             }
             events.append(LimitLifecycleEvent(
                 app: app,
+                accountID: statement.text(at: 7) ?? BarAppAccount.defaultID,
                 limit: LimitDescriptor(
                     id: id,
                     name: name,
@@ -36,14 +37,14 @@ extension Archive {
 
     public func trackingStarts(since: Date? = nil) throws -> [TrackingStartedEvent] {
         let statement = try prepare("""
-            SELECT app, time_unix_nano, interval_minutes FROM tracking_starts
+            SELECT app, time_unix_nano, interval_minutes FROM tracking_starts_v2
             WHERE time_unix_nano >= ?1
             ORDER BY time_unix_nano, app
             """)
         try statement.bind(.integer(since?.unixNano ?? Int64.min))
         var events: [TrackingStartedEvent] = []
         while try statement.step() {
-            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName) else {
+            guard let app = knownApp(statement.text(at: 0), in: "tracking_starts_v2") else {
                 continue
             }
             events.append(TrackingStartedEvent(
@@ -57,20 +58,21 @@ extension Archive {
 
     public func perkAvailableEvents(since: Date? = nil) throws -> [PerkAvailableEvent] {
         let statement = try prepare("""
-            SELECT app, kind, currency, quantity, perk_id, expires_at, time_unix_nano
-            FROM perk_available_events
+            SELECT app, kind, currency, quantity, perk_id, expires_at, time_unix_nano, account
+            FROM perk_available_events_v2
             WHERE time_unix_nano >= ?1
             ORDER BY time_unix_nano, rowid
             """)
         try statement.bind(.integer(since?.unixNano ?? Int64.min))
         var events: [PerkAvailableEvent] = []
         while try statement.step() {
-            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+            guard let app = knownApp(statement.text(at: 0), in: "perk_available_events_v2"),
                   let kindName = statement.text(at: 1), let kind = PerkKind(rawValue: kindName) else {
                 continue
             }
             events.append(PerkAvailableEvent(
                 app: app,
+                accountID: statement.text(at: 7) ?? BarAppAccount.defaultID,
                 kind: kind,
                 currency: statement.text(at: 2).flatMap { $0.isEmpty ? nil : $0 },
                 quantity: statement.optionalDouble(at: 3),

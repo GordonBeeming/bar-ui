@@ -3,6 +3,7 @@ import Foundation
 /// A `bar.perk.gone` event: a Perk disappeared, or its count or amount went down.
 public struct PerkGoneEvent: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let kind: PerkKind
     public let currency: String?
     /// How many went (a count) or how much (major units). Nil only for a
@@ -16,7 +17,7 @@ public struct PerkGoneEvent: Sendable, Hashable {
     public let timeUnixNano: Int64
 
     public init(
-        app: BarApp,
+        app: BarApp, accountID: String = BarAppAccount.defaultID,
         kind: PerkKind,
         currency: String?,
         quantity: Double?,
@@ -26,6 +27,7 @@ public struct PerkGoneEvent: Sendable, Hashable {
         timeUnixNano: Int64
     ) {
         self.app = app
+        self.accountID = accountID
         self.kind = kind
         self.currency = currency
         self.quantity = quantity

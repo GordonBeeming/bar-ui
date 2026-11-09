@@ -38,10 +38,13 @@ public struct TelemetryImporter: Sendable {
 
         // Oldest first, so a Limit's description ends on its newest name even
         // on a first import of many days.
-        for name in names.filter({ app.isMetricsFileName($0) || app.isLogsFileName($0) }).sorted() {
+        for name in names.sorted() {
+            guard let fileName = app.telemetryFile(named: name) else {
+                continue
+            }
             let file = folder.appendingPathComponent(name, isDirectory: false)
             do {
-                if let read = try await importFile(file, named: name, of: app, in: folder) {
+                if let read = try await importFile(file, named: name, of: app, account: fileName.accountID, in: folder) {
                     summary.filesRead += 1
                     summary.samplesRead += read.samples
                     summary.resetsRead += read.resets
@@ -63,7 +66,7 @@ public struct TelemetryImporter: Sendable {
         return summary
     }
 
-    private func importFile(_ file: URL, named name: String, of app: BarApp, in folder: URL) async throws -> (samples: Int, resets: Int, dropped: Int)? {
+    private func importFile(_ file: URL, named name: String, of app: BarApp, account accountID: String, in folder: URL) async throws -> (samples: Int, resets: Int, dropped: Int)? {
         let previous = try await archive.progress(of: app, fileName: name)
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize.map(Int64.init) ?? 0
         var offset = previous?.byteOffset ?? 0
@@ -91,9 +94,9 @@ public struct TelemetryImporter: Sendable {
         try handle.seek(toOffset: UInt64(offset))
         let data = try handle.readToEnd() ?? Data()
 
-        let result = app.isLogsFileName(name)
-            ? LogEventParser.parse(data, from: app)
-            : MetricsParser.parse(data, from: app)
+        let result = app.telemetryFile(named: name)?.isLogs == true
+            ? LogEventParser.parse(data, from: app, account: accountID)
+            : MetricsParser.parse(data, from: app, account: accountID)
         guard result.consumedByteCount > 0 || previous == nil || offset != previous?.byteOffset else {
             return nil
         }
@@ -115,15 +118,5 @@ public struct TelemetryImporter: Sendable {
             return nil
         }
         return (result.limitSamples.count, result.resets.count, result.droppedRecords)
-    }
-}
-
-extension BarApp {
-    func isMetricsFileName(_ name: String) -> Bool {
-        isTelemetryFileName(name) && name.hasPrefix("\(serviceName)-metrics-")
-    }
-
-    func isLogsFileName(_ name: String) -> Bool {
-        isTelemetryFileName(name) && name.hasPrefix("\(serviceName)-logs-")
     }
 }

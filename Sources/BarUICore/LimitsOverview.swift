@@ -15,6 +15,10 @@ public final class LimitsOverview {
     private var goneEver: [GonePerk] = []
     private var allEvents: [OverviewEvent] = []
     public private(set) var states: [BarApp: TrackingState] = [:]
+    /// Every Account with Limits or tokens in the Archive.
+    public private(set) var accounts: [BarAppAccount] = []
+    /// The label each Account last gave itself, such as an email address.
+    public private(set) var accountNames: [BarAppAccount: String] = [:]
     /// Why the last refresh couldn't read everything, for the Overview to show.
     public private(set) var problem: String?
 
@@ -72,8 +76,54 @@ public final class LimitsOverview {
         availableNow.filter { $0.app == app }
     }
 
+    public func availablePerks(of account: BarAppAccount) -> [AvailablePerk] {
+        availableNow.filter { $0.account == account }
+    }
+
     public func gonePerks(of app: BarApp) -> [GonePerk] {
         goneEver.filter { $0.app == app }
+    }
+
+    public func gonePerks(of account: BarAppAccount) -> [GonePerk] {
+        goneEver.filter { $0.account == account }
+    }
+
+    /// Which shade of its Bar App's colour an Account is drawn in: 0 for the
+    /// first Account an app has, then one step further for each next one.
+    public func colorStep(of account: BarAppAccount) -> Int {
+        accounts.filter { $0.app == account.app }.sorted().firstIndex(of: account) ?? 0
+    }
+
+    /// The Bar App's name, with the Account's label after it once the app has
+    /// more than one, so two series of the same app can be told apart.
+    public func seriesLabel(of account: BarAppAccount) -> String {
+        accounts.filter { $0.app == account.app }.count > 1
+            ? "\(account.app.displayName) · \(label(of: account))"
+            : account.app.displayName
+    }
+
+    /// What to call an Account to a person: the name it gave itself, else its
+    /// id, with `default` spelled as a word.
+    /// Two Accounts of one app that report the same name are told apart by
+    /// their ids.
+    public func label(of account: BarAppAccount) -> String {
+        let name = baseLabel(of: account)
+        let clashes = accounts.contains { $0 != account && $0.app == account.app && baseLabel(of: $0) == name }
+        return clashes ? "\(name) (\(account.accountID))" : name
+    }
+
+    private func baseLabel(of account: BarAppAccount) -> String {
+        accountNames[account] ?? (account.isDefault ? "Default" : account.accountID)
+    }
+
+    /// Tracking belongs to the Bar App, so its events carry no Account and are
+    /// named for the app; every other event is named for its Account.
+    public func label(of event: OverviewEvent) -> String {
+        event.kind == .trackingStarted ? event.app.displayName : seriesLabel(of: event.account)
+    }
+
+    public func colorStep(of event: OverviewEvent) -> Int {
+        event.kind == .trackingStarted ? 0 : colorStep(of: event.account)
     }
 
     /// The Events list for a range, newest first, from every Bar App.
@@ -161,6 +211,8 @@ public final class LimitsOverview {
             limits = try await archive.currentLimits()
             availableNow = try await archive.availablePerks()
             goneEver = try await archive.gonePerks()
+            accounts = try await archive.accounts()
+            accountNames = try await archive.accountNames()
         } catch {
             problems.append(error.localizedDescription)
         }
@@ -175,8 +227,8 @@ public final class LimitsOverview {
 
         do {
             var histories: [LimitHistory] = []
-            for app in BarApp.allCases {
-                histories += try await archive.limitHistories(of: app, since: since)
+            for account in accounts {
+                histories += try await archive.limitHistories(of: account.app, account: account.accountID, since: since)
             }
             allEvents = OverviewEvent.timeline(
                 histories: histories,

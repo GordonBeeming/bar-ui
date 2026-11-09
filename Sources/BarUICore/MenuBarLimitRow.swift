@@ -5,6 +5,7 @@ import Foundation
 public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     public let id: String
     public let app: BarApp
+    public let accountID: String
     public let appName: String
     public let windowName: String
     public let utilization: Double
@@ -24,6 +25,10 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     /// Set only when 100% comes before the Window resets.
     public let projectionText: String?
 
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
+
     public var isBurnRateHighlighted: Bool {
         projectionText != nil
     }
@@ -34,6 +39,7 @@ public struct MenuBarLimitRow: Sendable, Hashable, Identifiable {
     public init(card: LimitCard, burnRate: BurnRate?, pace: BurnRate?, now: Date) {
         id = card.id
         app = card.app
+        accountID = card.accountID
         appName = card.appName
         windowName = card.windowName
         utilization = card.utilization

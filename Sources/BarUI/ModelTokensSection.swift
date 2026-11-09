@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A Bar App's tokens by model for a chosen range.
 struct ModelTokensSection: View {
-    let app: BarApp
+    let account: BarAppAccount
     let overview: LimitsOverview
 
     @State private var range: TimeRange = .week
@@ -31,12 +31,12 @@ struct ModelTokensSection: View {
             // slide that often.
             TimelineView(.everyMinute) { context in
                 let usage = overview.tokenUsage(range: range, now: context.date)
-                let table = ModelTokensTable(usage: usage, app: app)
+                let table = ModelTokensTable(usage: usage, account: account)
                 if table.isEmpty {
                     ContentUnavailableView(
                         "No tokens in this range",
                         systemImage: "tablecells",
-                        description: Text("Tokens \(app.displayName) counts show up here.")
+                        description: Text("Tokens \(overview.seriesLabel(of: account)) counts show up here.")
                     )
                     .frame(height: 160)
                 } else {

@@ -39,10 +39,10 @@ extension Archive {
         do {
             let path = Self.folderIdentity(folder)
             if try storedImportFolder(of: app) != path {
-                try prepare("UPDATE imported_files SET byte_offset = 0 WHERE app = ?1")
+                try prepare("UPDATE imported_files_v2 SET byte_offset = 0 WHERE app = ?1")
                     .run(.text(app.rawValue))
                 try prepare("""
-                    INSERT INTO import_folders (app, folder) VALUES (?1, ?2)
+                    INSERT INTO import_folders_v2 (app, folder) VALUES (?1, ?2)
                     ON CONFLICT (app) DO UPDATE SET folder = excluded.folder
                     """).run(.text(app.rawValue), .text(path))
             }
@@ -101,69 +101,88 @@ extension Archive {
                 }
             }
             let describe = try prepare("""
-                INSERT INTO limits (app, limit_id, name, window_minutes, model_id, described_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                ON CONFLICT (app, limit_id) DO UPDATE SET
+                INSERT INTO limits_v2 (app, account, limit_id, name, window_minutes, model_id, described_at)
+                VALUES (?1, ?7, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT (app, account, limit_id) DO UPDATE SET
                     name = excluded.name,
                     window_minutes = excluded.window_minutes,
                     model_id = excluded.model_id,
                     described_at = excluded.described_at
-                WHERE excluded.described_at >= limits.described_at
+                WHERE excluded.described_at >= limits_v2.described_at
                 """)
             let insert = try prepare("""
-                INSERT OR IGNORE INTO limit_samples (app, limit_id, metric, time_unix_nano, value)
-                VALUES (?1, ?2, ?3, ?4, ?5)
+                INSERT OR IGNORE INTO limit_samples_v2 (app, account, limit_id, metric, time_unix_nano, value)
+                VALUES (?1, ?6, ?2, ?3, ?4, ?5)
                 """)
             let insertReset = try prepare("""
-                INSERT OR IGNORE INTO limit_resets (app, limit_id, time_unix_nano, utilization_last, next_resets_at)
-                VALUES (?1, ?2, ?3, ?4, ?5)
+                INSERT OR IGNORE INTO limit_resets_v2 (app, account, limit_id, time_unix_nano, utilization_last, next_resets_at)
+                VALUES (?1, ?6, ?2, ?3, ?4, ?5)
                 """)
             let insertLimitEvent = try prepare("""
-                INSERT OR IGNORE INTO limit_events (app, limit_id, kind, time_unix_nano, name, window_minutes, model_id)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                INSERT OR IGNORE INTO limit_events_v2 (app, account, limit_id, kind, time_unix_nano, name, window_minutes, model_id)
+                VALUES (?1, ?8, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
             let insertTrackingStart = try prepare("""
-                INSERT OR IGNORE INTO tracking_starts (app, time_unix_nano, interval_minutes)
+                INSERT OR IGNORE INTO tracking_starts_v2 (app, time_unix_nano, interval_minutes)
                 VALUES (?1, ?2, ?3)
                 """)
+            // Any row for an Account lists it, so reading the Accounts never has
+            // to scan the sample tables.
+            let register = try prepare("INSERT OR IGNORE INTO accounts_v2 (app, account) VALUES (?1, ?2)")
+            var registered: Set<BarAppAccount> = []
+            func registerAccount(_ app: BarApp, _ accountID: String) throws {
+                if registered.insert(BarAppAccount(app: app, accountID: accountID)).inserted {
+                    try register.run(.text(app.rawValue), .text(accountID))
+                }
+            }
+            for sample in records.limitSamples { try registerAccount(sample.app, sample.accountID) }
+            for sample in records.tokenSamples { try registerAccount(sample.app, sample.accountID) }
+            for sample in records.perkSamples { try registerAccount(sample.app, sample.accountID) }
+            for reset in records.resets { try registerAccount(reset.app, reset.accountID) }
+            for event in records.perkGoneEvents { try registerAccount(event.app, event.accountID) }
+            for event in records.perkAvailableEvents { try registerAccount(event.app, event.accountID) }
+            for event in records.limitEvents { try registerAccount(event.app, event.accountID) }
             let insertAvailable = try prepare("""
-                INSERT OR IGNORE INTO perk_available_events
-                    (app, kind, currency, time_unix_nano, quantity, perk_id, expires_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                INSERT OR IGNORE INTO perk_available_events_v2
+                    (app, account, kind, currency, time_unix_nano, quantity, perk_id, expires_at)
+                VALUES (?1, ?8, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
-            func describeLimit(of app: BarApp, _ limit: LimitDescriptor, at time: Int64) throws {
+            func describeLimit(of app: BarApp, account: String, _ limit: LimitDescriptor, at time: Int64) throws {
                 try describe.run(
                     .text(app.rawValue),
                     .text(limit.id),
                     .text(limit.name),
                     limit.windowDurationMinutes.map { .integer(Int64($0)) } ?? .null,
                     limit.modelID.map { .text($0) } ?? .null,
-                    .integer(time)
+                    .integer(time),
+                    .text(account)
                 )
             }
             for reset in records.resets {
-                try describeLimit(of: reset.app, reset.limit, at: reset.timeUnixNano)
+                try describeLimit(of: reset.app, account: reset.accountID, reset.limit, at: reset.timeUnixNano)
                 try insertReset.run(
                     .text(reset.app.rawValue),
                     .text(reset.limit.id),
                     .integer(reset.timeUnixNano),
                     .real(reset.utilizationLast),
-                    reset.nextResetsAt.map { .real($0.timeIntervalSince1970) } ?? .null
+                    reset.nextResetsAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+                    .text(reset.accountID)
                 )
             }
             for sample in records.limitSamples {
-                try describeLimit(of: sample.app, sample.limit, at: sample.timeUnixNano)
+                try describeLimit(of: sample.app, account: sample.accountID, sample.limit, at: sample.timeUnixNano)
                 try insert.run(
                     .text(sample.app.rawValue),
                     .text(sample.limit.id),
                     .text(sample.metric.rawValue),
                     .integer(sample.timeUnixNano),
-                    .real(sample.value)
+                    .real(sample.value),
+                    .text(sample.accountID)
                 )
             }
             let insertTokens = try prepare("""
-                INSERT OR IGNORE INTO token_samples (app, model, token_type, time_unix_nano, start_time_unix_nano, count)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                INSERT OR IGNORE INTO token_samples_v2 (app, account, model, token_type, time_unix_nano, start_time_unix_nano, count)
+                VALUES (?1, ?7, ?2, ?3, ?4, ?5, ?6)
                 """)
             for sample in records.tokenSamples {
                 try insertTokens.run(
@@ -172,12 +191,13 @@ extension Archive {
                     .text(sample.tokenType.rawValue),
                     .integer(sample.timeUnixNano),
                     .integer(sample.startTimeUnixNano),
-                    .integer(sample.count)
+                    .integer(sample.count),
+                    .text(sample.accountID)
                 )
             }
             let insertPerk = try prepare("""
-                INSERT OR IGNORE INTO perk_points (app, kind, currency, time_unix_nano, perk_id, value, expires_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                INSERT OR IGNORE INTO perk_points_v2 (app, account, kind, currency, time_unix_nano, perk_id, value, expires_at)
+                VALUES (?1, ?8, ?2, ?3, ?4, ?5, ?6, ?7)
                 """)
             for sample in records.perkSamples {
                 try insertPerk.run(
@@ -187,14 +207,15 @@ extension Archive {
                     .integer(sample.timeUnixNano),
                     .text(sample.perkID ?? ""),
                     .real(sample.value),
-                    sample.expiresAt.map { .integer($0) } ?? .null
+                    sample.expiresAt.map { .integer($0) } ?? .null,
+                    .text(sample.accountID)
                 )
             }
             // The unique index on the table makes a repeat of the same event a no-op.
             let insertGone = try prepare("""
-                INSERT OR IGNORE INTO perk_gone_events
-                    (app, kind, currency, time_unix_nano, quantity, perk_id, expires_at, reason)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                INSERT OR IGNORE INTO perk_gone_events_v2
+                    (app, account, kind, currency, time_unix_nano, quantity, perk_id, expires_at, reason)
+                VALUES (?1, ?9, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                 """)
             for event in records.perkGoneEvents {
                 try insertGone.run(
@@ -205,11 +226,12 @@ extension Archive {
                     event.quantity.map { .real($0) } ?? .null,
                     .text(event.perkID ?? ""),
                     event.expiresAt.map { .integer($0) } ?? .null,
-                    event.reportedReason.map { .text($0.rawValue) } ?? .null
+                    event.reportedReason.map { .text($0.rawValue) } ?? .null,
+                    .text(event.accountID)
                 )
             }
             for event in records.limitEvents {
-                try describeLimit(of: event.app, event.limit, at: event.timeUnixNano)
+                try describeLimit(of: event.app, account: event.accountID, event.limit, at: event.timeUnixNano)
                 try insertLimitEvent.run(
                     .text(event.app.rawValue),
                     .text(event.limit.id),
@@ -217,7 +239,8 @@ extension Archive {
                     .integer(event.timeUnixNano),
                     .text(event.limit.name),
                     event.limit.windowDurationMinutes.map { .integer(Int64($0)) } ?? .null,
-                    event.limit.modelID.map { .text($0) } ?? .null
+                    event.limit.modelID.map { .text($0) } ?? .null,
+                    .text(event.accountID)
                 )
             }
             for event in records.trackingStarts {
@@ -235,11 +258,28 @@ extension Archive {
                     .integer(event.timeUnixNano),
                     event.quantity.map { .real($0) } ?? .null,
                     .text(event.perkID ?? ""),
-                    event.expiresAt.map { .integer($0) } ?? .null
+                    event.expiresAt.map { .integer($0) } ?? .null,
+                    .text(event.accountID)
+                )
+            }
+            // A report only replaces the stored name when it is at least as
+            // recent, so importing an older file after a newer one can't undo
+            // a rename.
+            let upsertName = try prepare("""
+                INSERT INTO account_names (app, account, name, reported_at) VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT (app, account) DO UPDATE SET name = excluded.name, reported_at = excluded.reported_at
+                WHERE excluded.reported_at >= account_names.reported_at
+                """)
+            for name in records.accountNames {
+                try upsertName.run(
+                    .text(name.app.rawValue),
+                    .text(name.accountID),
+                    .text(name.name),
+                    .integer(name.reportedAt)
                 )
             }
             try prepare("""
-                INSERT INTO imported_files (app, file_name, byte_offset, dropped_records)
+                INSERT INTO imported_files_v2 (app, file_name, byte_offset, dropped_records)
                 VALUES (?1, ?2, ?3, ?4)
                 ON CONFLICT (app, file_name) DO UPDATE SET
                     byte_offset = excluded.byte_offset,
@@ -269,7 +309,7 @@ extension Archive {
     }
 
     private func storedImportFolder(of app: BarApp) throws -> String? {
-        let statement = try prepare("SELECT folder FROM import_folders WHERE app = ?1")
+        let statement = try prepare("SELECT folder FROM import_folders_v2 WHERE app = ?1")
         try statement.bind(.text(app.rawValue))
         guard try statement.step() else {
             return nil
@@ -278,7 +318,7 @@ extension Archive {
     }
 
     private func storedProgress(of app: BarApp, fileName: String) throws -> ImportProgress? {
-        let statement = try prepare("SELECT byte_offset, dropped_records FROM imported_files WHERE app = ?1 AND file_name = ?2")
+        let statement = try prepare("SELECT byte_offset, dropped_records FROM imported_files_v2 WHERE app = ?1 AND file_name = ?2")
         try statement.bind(.text(app.rawValue), .text(fileName))
         guard try statement.step() else {
             return nil
@@ -295,7 +335,7 @@ extension Archive {
     /// first. Counted from the files' import progress, so it stays complete
     /// after the Bar App deletes the files.
     public func skippedRecords(of app: BarApp) throws -> [SkippedRecords] {
-        let statement = try prepare("SELECT file_name, dropped_records FROM imported_files WHERE app = ?1 AND dropped_records > 0")
+        let statement = try prepare("SELECT file_name, dropped_records FROM imported_files_v2 WHERE app = ?1 AND dropped_records > 0")
         try statement.bind(.text(app.rawValue))
         var perDay: [TelemetryDay: Int] = [:]
         while try statement.step() {

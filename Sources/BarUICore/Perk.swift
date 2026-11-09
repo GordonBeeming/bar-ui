@@ -30,6 +30,7 @@ public struct AvailablePerkItem: Sendable, Hashable {
 /// A Perk series as it stands at its latest reading.
 public struct AvailablePerk: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let kind: PerkKind
     /// ISO 4217 code, for Credit Grants only.
     public let currency: String?
@@ -37,8 +38,13 @@ public struct AvailablePerk: Sendable, Hashable {
     public let items: [AvailablePerkItem]
     public let sampledAt: Date
 
-    public init(app: BarApp, kind: PerkKind, currency: String?, items: [AvailablePerkItem], sampledAt: Date) {
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
+
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, kind: PerkKind, currency: String?, items: [AvailablePerkItem], sampledAt: Date) {
         self.app = app
+        self.accountID = accountID
         self.kind = kind
         self.currency = currency
         self.items = items
@@ -72,6 +78,7 @@ public struct AvailablePerk: Sendable, Hashable {
 /// A Perk that went, and why.
 public struct GonePerk: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let kind: PerkKind
     public let currency: String?
     /// Nil when a Credit Grant went without saying how much.
@@ -81,8 +88,12 @@ public struct GonePerk: Sendable, Hashable {
     public let goneAt: Date
     public let reason: PerkGoneReason
 
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
+
     public init(
-        app: BarApp,
+        app: BarApp, accountID: String = BarAppAccount.defaultID,
         kind: PerkKind,
         currency: String?,
         quantity: Double?,
@@ -92,6 +103,7 @@ public struct GonePerk: Sendable, Hashable {
         reason: PerkGoneReason
     ) {
         self.app = app
+        self.accountID = accountID
         self.kind = kind
         self.currency = currency
         self.quantity = quantity
@@ -133,6 +145,7 @@ public struct PerkSample: Sendable, Hashable {
     public static let metricName = "bar.perk.available"
 
     public let app: BarApp
+    public let accountID: String
     public let kind: PerkKind
     /// Set for Credit Grants only; it is part of the series key.
     public let currency: String?
@@ -145,7 +158,7 @@ public struct PerkSample: Sendable, Hashable {
     public let perkID: String?
 
     public init(
-        app: BarApp,
+        app: BarApp, accountID: String = BarAppAccount.defaultID,
         kind: PerkKind,
         currency: String?,
         timeUnixNano: Int64,
@@ -154,6 +167,7 @@ public struct PerkSample: Sendable, Hashable {
         perkID: String? = nil
     ) {
         self.app = app
+        self.accountID = accountID
         self.kind = kind
         self.currency = currency
         self.timeUnixNano = timeUnixNano
@@ -186,6 +200,7 @@ struct PerkAccumulator {
         }
         byKey[key] = PerkSample(
             app: sample.app,
+            accountID: sample.accountID,
             kind: sample.kind,
             currency: sample.currency,
             timeUnixNano: sample.timeUnixNano,

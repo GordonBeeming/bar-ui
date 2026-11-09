@@ -9,8 +9,11 @@ struct LimitHistorySection: View {
     /// its own schedule; re-reading the Archive at this pace picks both up.
     private static let reloadInterval: Duration = .seconds(15)
 
-    let app: BarApp
+    let account: BarAppAccount
     let model: LimitHistoryModel
+
+    /// Which shade of the Bar App's colour this Account is drawn in.
+    var step = 0
 
     @State private var range: TimeRange = .week
 
@@ -41,17 +44,17 @@ struct LimitHistorySection: View {
                 ContentUnavailableView(
                     "No Limits recorded yet",
                     systemImage: "chart.xyaxis.line",
-                    description: Text("\(app.displayName)'s Limits show up here once it has recorded Telemetry.")
+                    description: Text("\(account.app.displayName)'s Limits show up here once it has recorded Telemetry.")
                 )
             } else {
                 ForEach(model.rows) { row in
-                    LimitHistoryRowView(row: row, brand: app.brandColor, range: range)
+                    LimitHistoryRowView(row: row, brand: account.app.brandColor(step: step), range: range)
                 }
             }
         }
         .task(id: range) {
             while !Task.isCancelled {
-                await model.load(app: app, range: range, now: .now)
+                await model.load(app: account.app, account: account.accountID, range: range, now: .now)
                 do {
                     try await Task.sleep(for: Self.reloadInterval)
                 } catch {

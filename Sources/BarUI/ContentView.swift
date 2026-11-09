@@ -23,7 +23,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(SidebarSection.all, id: \.self) { section in
+                ForEach(SidebarSection.sections(accounts: archive.overview?.accounts ?? []), id: \.self) { section in
                     if let title = section.title {
                         Section(title) {
                             rows(for: section)
@@ -106,10 +106,43 @@ struct ContentView: View {
     }
 
     private func rows(for section: SidebarSection) -> some View {
-        ForEach(section.items) { item in
-            SidebarRow(item: item, barAppState: barAppState(for: item))
+        ForEach(Array(section.items.enumerated()), id: \.element) { index, item in
+            // A Bar App with several Accounts is listed as one row per
+            // Account under a heading row, which only names the app and its
+            // Tracking state.
+            let isFirstOfApp = index == 0 || section.items[index - 1].app != item.app
+            let isLastOfApp = index == section.items.count - 1 || section.items[index + 1].app != item.app
+            if case .account(let account) = item, isFirstOfApp, isLastOfApp {
+                // The app's only Account reads as the app itself.
+                SidebarRow(item: .barApp(account.app), barAppState: monitor.status(of: account.app).state)
+                    .tag(item)
+            } else {
+                if case .account(let account) = item, isFirstOfApp {
+                    SidebarRow(item: .barApp(account.app), barAppState: monitor.status(of: account.app).state)
+                }
+                SidebarRow(
+                    item: item,
+                    barAppState: barAppState(for: item),
+                    accountTitle: accountTitle(for: item),
+                    accountStep: accountStep(for: item)
+                )
                 .tag(item)
+            }
         }
+    }
+
+    private func accountTitle(for item: SidebarItem) -> String? {
+        guard case .account(let account) = item else {
+            return nil
+        }
+        return archive.overview?.label(of: account)
+    }
+
+    private func accountStep(for item: SidebarItem) -> Int {
+        guard case .account(let account) = item else {
+            return 0
+        }
+        return archive.overview?.colorStep(of: account) ?? 0
     }
 
     private func barAppState(for item: SidebarItem) -> TrackingState? {
@@ -119,13 +152,28 @@ struct ContentView: View {
         return monitor.status(of: app).state
     }
 
+    private func barAppPage(for account: BarAppAccount, title: String) -> some View {
+        BarAppPageView(
+            account: account,
+            title: title,
+            status: monitor.status(of: account.app),
+            home: Self.home,
+            remote: remote,
+            skipped: archive.overview?.skippedRecords[account.app],
+            history: archive.history,
+            overview: archive.overview
+        )
+    }
+
     @ViewBuilder
     private func detail(for item: SidebarItem) -> some View {
         switch item {
         case .overview:
             OverviewView(overview: archive.overview, archiveFailure: archive.failure)
         case .barApp(let app):
-            BarAppPageView(app: app, status: monitor.status(of: app), home: Self.home, remote: remote, skipped: archive.overview?.skippedRecords[app], history: archive.history, overview: archive.overview)
+            barAppPage(for: BarAppAccount(app: app), title: app.displayName)
+        case .account(let account):
+            barAppPage(for: account, title: archive.overview?.seriesLabel(of: account) ?? account.app.displayName)
         case .archive(.events):
             ResetsAndPerksPageView(overview: archive.overview, archiveFailure: archive.failure)
         case .archive(.imports):

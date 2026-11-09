@@ -1,5 +1,24 @@
 import Foundation
 
+/// An Account's `account.name`, kept for showing to people. It never decides
+/// which series a record belongs to.
+public struct AccountName: Sendable, Hashable {
+    public let app: BarApp
+    public let accountID: String
+    public let name: String
+    /// The newest time of any point or event in the resource that carried the
+    /// name, in Unix nanoseconds. A rename is told from an older report of the
+    /// old name by this, not by the order files happen to be read in.
+    public let reportedAt: Int64
+
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, name: String, reportedAt: Int64 = 0) {
+        self.app = app
+        self.accountID = accountID
+        self.name = name
+        self.reportedAt = reportedAt
+    }
+}
+
 /// Everything one read of a Telemetry file turned up, in the shape the Archive
 /// stores it. A metrics file fills the samples and a logs file the events; the
 /// Archive writes them, and the file's new read position, as one unit.
@@ -12,6 +31,8 @@ public struct TelemetryRecords: Sendable, Equatable {
     public var perkAvailableEvents: [PerkAvailableEvent]
     public var limitEvents: [LimitLifecycleEvent]
     public var trackingStarts: [TrackingStartedEvent]
+    /// The labels Accounts gave themselves in the resources that were read.
+    public var accountNames: [AccountName]
 
     public init(
         limitSamples: [LimitSample] = [],
@@ -21,7 +42,8 @@ public struct TelemetryRecords: Sendable, Equatable {
         perkGoneEvents: [PerkGoneEvent] = [],
         perkAvailableEvents: [PerkAvailableEvent] = [],
         limitEvents: [LimitLifecycleEvent] = [],
-        trackingStarts: [TrackingStartedEvent] = []
+        trackingStarts: [TrackingStartedEvent] = [],
+        accountNames: [AccountName] = []
     ) {
         self.limitSamples = limitSamples
         self.tokenSamples = tokenSamples
@@ -31,6 +53,7 @@ public struct TelemetryRecords: Sendable, Equatable {
         self.perkAvailableEvents = perkAvailableEvents
         self.limitEvents = limitEvents
         self.trackingStarts = trackingStarts
+        self.accountNames = accountNames
     }
 }
 

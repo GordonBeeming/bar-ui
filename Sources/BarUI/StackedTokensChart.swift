@@ -9,6 +9,8 @@ struct StackedTokensChart: View {
     let usage: TokenUsage
     let unit: Calendar.Component
     var compact = false
+    /// How a series is named in the hover callout.
+    var label: (BarAppAccount) -> String = { $0.app.displayName }
 
     @State private var pointerDate: Date?
 
@@ -72,9 +74,9 @@ struct StackedTokensChart: View {
             }
             Text("Total: \(bucket.tokensByKind.values.reduce(0, +).formatted())")
                 .fontWeight(.semibold)
-            ForEach(BarApp.allCases, id: \.self) { app in
-                if let tokens = bucket.tokensByApp[app], tokens > 0 {
-                    Text("\(app.displayName): \(tokens.formatted())")
+            ForEach(bucket.tokensByAccount.keys.sorted(), id: \.self) { account in
+                if let tokens = bucket.tokensByAccount[account], tokens > 0 {
+                    Text("\(label(account)): \(tokens.formatted())")
                         .foregroundStyle(.secondary)
                 }
             }

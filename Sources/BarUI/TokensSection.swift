@@ -27,9 +27,9 @@ struct TokensSection: View {
                 .fixedSize()
             }
 
-            TokensChart(usage: usage, range: range)
+            TokensChart(usage: usage, range: range, overview: overview)
 
-            TokenTiles(usage: usage)
+            TokenTiles(usage: usage, overview: overview)
         }
     }
 }
@@ -37,6 +37,7 @@ struct TokensSection: View {
 private struct TokensChart: View {
     let usage: TokenUsage
     let range: TimeRange
+    let overview: LimitsOverview
 
     var body: some View {
         if usage.total == 0 {
@@ -47,7 +48,7 @@ private struct TokensChart: View {
             )
             .frame(height: 220)
         } else {
-            StackedTokensChart(usage: usage, unit: range.bucketComponent)
+            StackedTokensChart(usage: usage, unit: range.bucketComponent, label: overview.seriesLabel(of:))
                 .frame(height: 220)
                 .accessibilityLabel("Tokens over time, stacked by cache reads, input and output")
         }
@@ -56,6 +57,7 @@ private struct TokensChart: View {
 
 private struct TokenTiles: View {
     let usage: TokenUsage
+    let overview: LimitsOverview
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: 16, alignment: .top)]
 
@@ -64,8 +66,8 @@ private struct TokenTiles: View {
             TokenTile(
                 title: "Total tokens",
                 value: DisplayFormat.tokens(usage.total),
-                detail: BarApp.allCases
-                    .compactMap { app in usage.totalByApp[app].map { "\(app.displayName) \(DisplayFormat.tokens($0))" } }
+                detail: usage.totalByAccount.keys.sorted()
+                    .compactMap { account in usage.totalByAccount[account].map { "\(overview.seriesLabel(of: account)) \(DisplayFormat.tokens($0))" } }
                     .joined(separator: " · ")
             )
             TokenTile(

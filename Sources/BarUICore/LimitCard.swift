@@ -25,6 +25,7 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     }
 
     public let app: BarApp
+    public let accountID: String
     public let limitID: String
     public let windowName: String
     public let utilization: Double
@@ -45,7 +46,11 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     public let resetDetailText: String
 
     public var id: String {
-        "\(app.rawValue)/\(limitID)"
+        "\(account.key)/\(limitID)"
+    }
+
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
     }
 
     public var appName: String {
@@ -64,6 +69,7 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
 
     init(limit: CurrentLimit, now: Date) {
         app = limit.app
+        accountID = limit.accountID
         limitID = limit.limit.id
         windowName = limit.limit.name
         utilization = limit.utilization
@@ -94,9 +100,8 @@ public struct LimitCard: Sendable, Hashable, Identifiable {
     /// Bar Apps in their sidebar order, then shortest Window first, so the
     /// Limit that resets soonest leads. Unknown Windows go last.
     private static func displayOrder(_ lhs: CurrentLimit, _ rhs: CurrentLimit) -> Bool {
-        let apps = BarApp.allCases
-        if lhs.app != rhs.app {
-            return (apps.firstIndex(of: lhs.app) ?? apps.count) < (apps.firstIndex(of: rhs.app) ?? apps.count)
+        if lhs.account != rhs.account {
+            return lhs.account < rhs.account
         }
         let lhsMinutes = lhs.limit.windowDurationMinutes ?? .max
         let rhsMinutes = rhs.limit.windowDurationMinutes ?? .max

@@ -13,6 +13,23 @@ extension BarApp {
         }
     }
 
+    /// The colour of an app's further Accounts. The first keeps the brand
+    /// colour; each next one is a clearly lighter or darker step of it, picked
+    /// per theme so it stays readable on that theme's background. Steps past
+    /// the table reuse its last.
+    func brandColor(step: Int) -> Color {
+        guard step > 0 else {
+            return brandColor
+        }
+        let steps: [(light: UInt32, dark: UInt32)] = switch self {
+        case .claudeBar: [(0x9C4A2F, 0xF2B49C), (0x5E2A1A, 0xF9D8C9)]
+        case .codexBar: [(0x142F7A, 0xA5BAFF), (0x0A1A4D, 0xD0DBFF)]
+        case .grokBar: [(0x6B6B6B, 0xB0B0B0), (0x858585, 0x808080)]
+        }
+        let pick = steps[min(step, steps.count) - 1]
+        return Color(light: pick.light, dark: pick.dark)
+    }
+
     /// The sidebar glyph. GrokBar's dark fill is near white, so the sparkle
     /// flips to black there. The other tiles stay dark enough for white.
     var symbolColor: Color {
@@ -39,9 +56,9 @@ extension TokenKind {
 extension LimitCard.Severity {
     /// The meter fill. A Limit that's fine keeps its Bar App's colour, so
     /// amber and red only appear when they mean something.
-    func meterColor(for app: BarApp) -> Color {
+    func meterColor(for app: BarApp, step: Int = 0) -> Color {
         switch self {
-        case .normal: app.brandColor
+        case .normal: app.brandColor(step: step)
         case .runningLow: Color(light: 0xC77700, dark: 0xC77700)
         case .nearLimit: Color(light: 0xD1242F, dark: 0xD1242F)
         }
