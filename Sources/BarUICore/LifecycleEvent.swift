@@ -8,12 +8,18 @@ public struct LimitLifecycleEvent: Sendable, Hashable {
     }
 
     public let app: BarApp
+    public let accountID: String
     public let limit: LimitDescriptor
     public let kind: Kind
     public let timeUnixNano: Int64
 
-    public init(app: BarApp, limit: LimitDescriptor, kind: Kind, timeUnixNano: Int64) {
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
+
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, limit: LimitDescriptor, kind: Kind, timeUnixNano: Int64) {
         self.app = app
+        self.accountID = accountID
         self.limit = limit
         self.kind = kind
         self.timeUnixNano = timeUnixNano
@@ -36,6 +42,7 @@ public struct TrackingStartedEvent: Sendable, Hashable {
 /// A `bar.perk.available` event: a Perk appeared, or its count or amount went up.
 public struct PerkAvailableEvent: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let kind: PerkKind
     public let currency: String?
     /// How many appeared, or how much (major units). Nil only for a Credit
@@ -46,8 +53,12 @@ public struct PerkAvailableEvent: Sendable, Hashable {
     public let expiresAt: Int64?
     public let timeUnixNano: Int64
 
+    public var account: BarAppAccount {
+        BarAppAccount(app: app, accountID: accountID)
+    }
+
     public init(
-        app: BarApp,
+        app: BarApp, accountID: String = BarAppAccount.defaultID,
         kind: PerkKind,
         currency: String?,
         quantity: Double?,
@@ -56,6 +67,7 @@ public struct PerkAvailableEvent: Sendable, Hashable {
         timeUnixNano: Int64
     ) {
         self.app = app
+        self.accountID = accountID
         self.kind = kind
         self.currency = currency
         self.quantity = quantity
@@ -69,6 +81,7 @@ public struct PerkAvailableEvent: Sendable, Hashable {
     init(gone event: PerkGoneEvent) {
         self.init(
             app: event.app,
+            accountID: event.accountID,
             kind: event.kind,
             currency: event.currency,
             quantity: event.quantity,

@@ -3,14 +3,16 @@ import Foundation
 /// A Limit's Window rolling over, as the Bar App logged it.
 public struct LimitReset: Sendable, Hashable {
     public let app: BarApp
+    public let accountID: String
     public let limit: LimitDescriptor
     public let timeUnixNano: Int64
     /// The last utilisation sampled before the reset, 0 to 100.
     public let utilizationLast: Double
     public let nextResetsAt: Date?
 
-    public init(app: BarApp, limit: LimitDescriptor, timeUnixNano: Int64, utilizationLast: Double, nextResetsAt: Date?) {
+    public init(app: BarApp, accountID: String = BarAppAccount.defaultID, limit: LimitDescriptor, timeUnixNano: Int64, utilizationLast: Double, nextResetsAt: Date?) {
         self.app = app
+        self.accountID = accountID
         self.limit = limit
         self.timeUnixNano = timeUnixNano
         self.utilizationLast = utilizationLast
@@ -31,13 +33,13 @@ public enum LogEventParser {
     private static let limitDisappearedEventName = "bar.limit.disappeared"
     private static let trackingStartedEventName = "bar.tracking.started"
 
-    public static func parse(_ data: Data, from app: BarApp) -> TelemetryParseResult {
+    public static func parse(_ data: Data, from app: BarApp, account accountID: String = BarAppAccount.defaultID) -> TelemetryParseResult {
         var records = TelemetryRecords()
         var dropped = 0
         let lines = OTLPLines.forEachRequest(in: data, as: ExportLogsServiceRequest.self) { request in
             for resourceLogs in request.resourceLogs ?? [] {
                 let resource = resourceLogs.resource?.attributes ?? []
-                guard OTLPLines.isConforming(resource: resource, of: app) else {
+                guard OTLPLines.isConforming(resource: resource, of: app, account: accountID) else {
                     dropped += 1
                     continue
                 }
@@ -48,6 +50,9 @@ public enum LogEventParser {
                     }
                     continue
                 }
+                if let name = OTLPLines.accountName(in: resource), !records.accountNames.contains(where: { $0.name == name }) {
+                    records.accountNames.append(AccountName(app: app, accountID: accountID, name: name))
+                }
                 for scope in scopes {
                     guard OTLPLines.isConforming(scope: scope.scope, of: app) else {
                         if holdsBarEvents(scope) {
@@ -56,7 +61,7 @@ public enum LogEventParser {
                         continue
                     }
                     for record in scope.logRecords ?? [] {
-                        read(record, from: app, into: &records, dropped: &dropped)
+                        read(record, from: app, account: accountID, into: &records, dropped: &dropped)
                     }
                 }
             }
@@ -78,7 +83,7 @@ public enum LogEventParser {
         }
     }
 
-    private static func read(_ record: LogRecord, from app: BarApp, into records: inout TelemetryRecords, dropped: inout Int) {
+    private static func read(_ record: LogRecord, from app: BarApp, account accountID: String, into records: inout TelemetryRecords, dropped: inout Int) {
         if record.isEventNameMalformed {
             // It may be one of the events read here; it breaks the spec either way.
             dropped += 1
@@ -93,13 +98,13 @@ public enum LogEventParser {
         }
         switch name {
         case resetEventName:
-            if let reset = reset(from: record, app: app) {
+            if let reset = reset(from: record, app: app, account: accountID) {
                 records.resets.append(reset)
             } else {
                 dropped += 1
             }
         case perkAvailableEventName, perkGoneEventName:
-            if let event = perkEvent(from: record, app: app) {
+            if let event = perkEvent(from: record, app: app, account: accountID) {
                 if record.eventName == perkGoneEventName {
                     records.perkGoneEvents.append(event)
                 } else {
@@ -109,7 +114,7 @@ public enum LogEventParser {
                 dropped += 1
             }
         case limitAppearedEventName, limitDisappearedEventName:
-            if let event = limitEvent(from: record, app: app) {
+            if let event = limitEvent(from: record, app: app, account: accountID) {
                 records.limitEvents.append(event)
             } else {
                 dropped += 1
@@ -125,13 +130,13 @@ public enum LogEventParser {
         }
     }
 
-    private static func limitEvent(from record: LogRecord, app: BarApp) -> LimitLifecycleEvent? {
+    private static func limitEvent(from record: LogRecord, app: BarApp, account accountID: String) -> LimitLifecycleEvent? {
         guard let limit = OTLPLines.limitDescriptor(from: record.attributes ?? []),
               let time = record.timeUnixNano, time > 0 else {
             return nil
         }
         let kind: LimitLifecycleEvent.Kind = record.eventName == limitAppearedEventName ? .appeared : .disappeared
-        return LimitLifecycleEvent(app: app, limit: limit, kind: kind, timeUnixNano: time)
+        return LimitLifecycleEvent(app: app, accountID: accountID, limit: limit, kind: kind, timeUnixNano: time)
     }
 
     private static func trackingStarted(from record: LogRecord, app: BarApp) -> TrackingStartedEvent? {
@@ -143,7 +148,7 @@ public enum LogEventParser {
         return TrackingStartedEvent(app: app, intervalMinutes: Int(clamping: minutes), timeUnixNano: time)
     }
 
-    private static func perkEvent(from record: LogRecord, app: BarApp) -> PerkGoneEvent? {
+    private static func perkEvent(from record: LogRecord, app: BarApp, account accountID: String) -> PerkGoneEvent? {
         let attributes = record.attributes ?? []
         guard let kind = attributes.string("perk.kind").flatMap(PerkKind.init(rawValue:)),
               let time = record.timeUnixNano, time > 0,
@@ -173,6 +178,7 @@ public enum LogEventParser {
 
         return PerkGoneEvent(
             app: app,
+            accountID: accountID,
             kind: kind,
             currency: currency.value,
             quantity: quantity,
@@ -183,7 +189,7 @@ public enum LogEventParser {
         )
     }
 
-    private static func reset(from record: LogRecord, app: BarApp) -> LimitReset? {
+    private static func reset(from record: LogRecord, app: BarApp, account accountID: String) -> LimitReset? {
         let attributes = record.attributes ?? []
         guard let limit = OTLPLines.limitDescriptor(from: attributes),
               let time = record.timeUnixNano, time > 0,
@@ -201,7 +207,7 @@ public enum LogEventParser {
             }
             next = Date(timeIntervalSince1970: TimeInterval(seconds))
         }
-        return LimitReset(app: app, limit: limit, timeUnixNano: time, utilizationLast: last, nextResetsAt: next)
+        return LimitReset(app: app, accountID: accountID, limit: limit, timeUnixNano: time, utilizationLast: last, nextResetsAt: next)
     }
 }
 

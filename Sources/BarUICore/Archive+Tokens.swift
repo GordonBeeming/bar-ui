@@ -9,50 +9,51 @@ extension Archive {
     public func tokenSamples(since: Date? = nil) throws -> [TokenSample] {
         guard let since else {
             return try readTokenSamples(try prepare("""
-                SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count
-                FROM token_samples
-                ORDER BY time_unix_nano, app, model, token_type
+                SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count, account
+                FROM token_samples_v2
+                ORDER BY time_unix_nano, app, account, model, token_type
                 """))
         }
         let floor = since.unixNano
         let inRange = try prepare("""
-            SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count
-            FROM token_samples
+            SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count, account
+            FROM token_samples_v2
             WHERE time_unix_nano >= ?1
-            ORDER BY time_unix_nano, app, model, token_type
+            ORDER BY time_unix_nano, app, account, model, token_type
             """)
         try inRange.bind(.integer(floor))
         let samples = try readTokenSamples(inRange)
 
         let baseline = try prepare("""
-            SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count
-            FROM token_samples
-            WHERE app = ?1 AND model = ?2 AND token_type = ?3 AND time_unix_nano < ?4
+            SELECT app, model, token_type, start_time_unix_nano, time_unix_nano, count, account
+            FROM token_samples_v2
+            WHERE app = ?1 AND model = ?2 AND token_type = ?3 AND time_unix_nano < ?4 AND account = ?5
             ORDER BY time_unix_nano DESC LIMIT 1
             """)
         var baselines: [TokenSample] = []
         var seen: Set<[String]> = []
-        for sample in samples where seen.insert([sample.app.rawValue, sample.model, sample.tokenType.rawValue]).inserted {
-            try baseline.bind(.text(sample.app.rawValue), .text(sample.model), .text(sample.tokenType.rawValue), .integer(floor))
+        for sample in samples where seen.insert([sample.app.rawValue, sample.accountID, sample.model, sample.tokenType.rawValue]).inserted {
+            try baseline.bind(.text(sample.app.rawValue), .text(sample.model), .text(sample.tokenType.rawValue), .integer(floor), .text(sample.accountID))
             baselines += try readTokenSamples(baseline)
         }
         return (baselines + samples).sorted {
-            ($0.timeUnixNano, $0.app.rawValue, $0.model, $0.tokenType.rawValue) < ($1.timeUnixNano, $1.app.rawValue, $1.model, $1.tokenType.rawValue)
+            ($0.timeUnixNano, $0.app.rawValue, $0.accountID, $0.model, $0.tokenType.rawValue) < ($1.timeUnixNano, $1.app.rawValue, $1.accountID, $1.model, $1.tokenType.rawValue)
         }
     }
 
     private func readTokenSamples(_ statement: Statement) throws -> [TokenSample] {
         var samples: [TokenSample] = []
         while try statement.step() {
-            // Rows from a Bar App or Token Type this build doesn't know stay
-            // in the Archive untouched but can't be shown.
-            guard let appName = statement.text(at: 0), let app = BarApp(rawValue: appName),
+            // Rows from a Token Type this build doesn't know stay in the
+            // Archive untouched but can't be shown.
+            guard let app = knownApp(statement.text(at: 0), in: "token_samples_v2"),
                   let model = statement.text(at: 1),
                   let typeName = statement.text(at: 2), let tokenType = TokenType(rawValue: typeName) else {
                 continue
             }
             samples.append(TokenSample(
                 app: app,
+                accountID: statement.text(at: 6) ?? BarAppAccount.defaultID,
                 model: model,
                 tokenType: tokenType,
                 startTimeUnixNano: statement.int64(at: 3),

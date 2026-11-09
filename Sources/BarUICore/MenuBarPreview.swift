@@ -17,6 +17,15 @@ public final class MenuBarPreview {
         self.overview = overview
     }
 
+    /// The Bar App's name, with the Account after it when the app has several.
+    public func seriesLabel(of account: BarAppAccount) -> String {
+        overview.seriesLabel(of: account)
+    }
+
+    public func colorStep(of account: BarAppAccount) -> Int {
+        overview.colorStep(of: account)
+    }
+
     public func tokenUsage(now: Date, calendar: Calendar = .current) -> TokenUsage {
         overview.tokenUsage(range: .day, now: now, calendar: calendar)
     }
@@ -37,11 +46,11 @@ public final class MenuBarPreview {
         var burnRates: [String: BurnRate] = [:]
         var paces: [String: BurnRate] = [:]
         var problems: [String] = []
-        for app in Set(cards.map(\.app)) {
+        for account in Set(cards.map(\.account)) {
             do {
-                let histories = try await archive.limitHistories(of: app, since: now.addingTimeInterval(-BurnRate.longestPaceLookback))
+                let histories = try await archive.limitHistories(of: account.app, account: account.accountID, since: now.addingTimeInterval(-BurnRate.longestPaceLookback))
                 for history in histories {
-                    let key = "\(app.rawValue)/\(history.limit.id)"
+                    let key = "\(account.key)/\(history.limit.id)"
                     let resets = history.resets.map { Date(unixNano: $0.timeUnixNano) }
                     burnRates[key] = BurnRate(samples: history.utilization, resetTimes: resets, now: now)
                     paces[key] = BurnRate(
@@ -53,7 +62,7 @@ public final class MenuBarPreview {
                 }
             } catch {
                 // That app's rows still show their usage, just without a rate.
-                problems.append("\(app.displayName): \(error.localizedDescription)")
+                problems.append("\(account.app.displayName): \(error.localizedDescription)")
             }
         }
         rows = cards.map { MenuBarLimitRow(card: $0, burnRate: burnRates[$0.id], pace: paces[$0.id], now: now) }

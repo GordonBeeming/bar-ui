@@ -4,7 +4,9 @@ import SwiftUI
 /// A Bar App's own page: its Limit history, plus the Tracking banner and
 /// the way into the Tracking settings.
 struct BarAppPageView: View {
-    let app: BarApp
+    let account: BarAppAccount
+    /// The Bar App's name, with the Account after it when the app has several.
+    let title: String
     let status: BarAppStatus
     let home: URL
     let remote: BarAppRemote
@@ -14,6 +16,10 @@ struct BarAppPageView: View {
     let history: LimitHistoryModel?
     /// Nil when the Archive couldn't be opened.
     let overview: LimitsOverview?
+
+    private var app: BarApp {
+        account.app
+    }
 
     @State private var editing: TrackingSettingsEditing?
     @State private var failure: String?
@@ -48,7 +54,7 @@ struct BarAppPageView: View {
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 16)
-        .navigationTitle(app.displayName)
+        .navigationTitle(title)
         .toolbar {
             if let settings = status.settings {
                 ToolbarItemGroup {
@@ -74,14 +80,14 @@ struct BarAppPageView: View {
         if let history {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    LimitHistorySection(app: app, model: history)
-                        .id(app)
+                    LimitHistorySection(account: account, model: history, step: overview?.colorStep(of: account) ?? 0)
+                        .id(account)
                     if let overview {
-                        ModelTokensSection(app: app, overview: overview)
+                        ModelTokensSection(account: account, overview: overview)
                         PerksSectionView(
                             app: app,
-                            available: overview.availablePerks(of: app),
-                            gone: overview.gonePerks(of: app)
+                            available: overview.availablePerks(of: account),
+                            gone: overview.gonePerks(of: account)
                         )
                     }
                 }

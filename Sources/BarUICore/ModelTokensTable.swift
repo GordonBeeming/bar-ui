@@ -18,7 +18,14 @@ public struct ModelTokensTable: Sendable, Equatable {
     public var isEmpty: Bool { rows.isEmpty }
 
     public init(usage: TokenUsage, app: BarApp) {
-        let byModel = usage.tokens(of: app)
+        self.init(byModel: usage.tokens(of: app))
+    }
+
+    public init(usage: TokenUsage, account: BarAppAccount) {
+        self.init(byModel: usage.tokens(of: account))
+    }
+
+    private init(byModel: [String: [TokenType: Int64]]) {
 
         func row(_ name: String, _ tokens: [TokenType: Int64]) -> Row {
             Row(

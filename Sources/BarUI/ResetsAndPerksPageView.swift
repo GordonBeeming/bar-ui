@@ -26,6 +26,7 @@ struct ResetsAndPerksPageView: View {
                                 ProblemLabel(problem: problem)
                             }
                             ResetsAndPerksSection(
+                                overview: overview,
                                 events: overview.events(range: range, now: context.date),
                                 range: range,
                                 now: context.date,

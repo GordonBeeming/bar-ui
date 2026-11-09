@@ -5,6 +5,7 @@ import SwiftUI
 /// a chart of how much each Window left unused, then the list, newest first,
 /// which also carries Limits running low and Tracking changes.
 struct ResetsAndPerksSection: View {
+    let overview: LimitsOverview
     let events: [OverviewEvent]
     let range: TimeRange
     let now: Date
@@ -21,6 +22,7 @@ struct ResetsAndPerksSection: View {
     var body: some View {
         let events = shown
         let chart = ResetsChartData(events: events, range: range, now: now, alignedTo: tokensDomain)
+        let series = ResetsChartSeries.all(in: overview)
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Resets & Perks")
@@ -40,8 +42,8 @@ struct ResetsAndPerksSection: View {
 
             if !chart.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    ResetsChartLegend()
-                    ResetsChart(data: chart, unit: range.bucketComponent)
+                    ResetsChartLegend(series: series)
+                    ResetsChart(data: chart, unit: range.bucketComponent, series: series)
                         .frame(height: 220)
                 }
                 .padding(18)
@@ -62,7 +64,7 @@ struct ResetsAndPerksSection: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(events) { event in
-                        EventRow(event: event, now: now)
+                        EventRow(event: event, now: now, label: overview.seriesLabel(of: event.account), step: overview.colorStep(of: event.account))
                         if event.id != events.last?.id {
                             Divider()
                         }
@@ -82,19 +84,21 @@ struct ResetsAndPerksSection: View {
 private struct EventRow: View {
     let event: OverviewEvent
     let now: Date
+    let label: String
+    let step: Int
 
     private static let exactFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Circle()
-                .fill(event.app.brandColor)
+                .fill(event.app.brandColor(step: step))
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
                     .fontWeight(.medium)
-                Text("\(event.app.displayName) · \(event.detail)")
+                Text("\(label) · \(event.detail)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

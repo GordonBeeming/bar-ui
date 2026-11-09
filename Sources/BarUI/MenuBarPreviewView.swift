@@ -115,7 +115,7 @@ private struct PreviewContent: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            HourlyChart(usage: usage)
+            HourlyChart(usage: usage, label: preview.seriesLabel(of:))
         }
         .accessibilityElement(children: .contain)
     }
@@ -128,11 +128,13 @@ private struct PreviewContent: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(BarApp.allCases, id: \.self) { app in
-                    let rows = preview.rows.filter { $0.app == app }
-                    if !rows.isEmpty {
-                        BarAppLimitsCard(app: app, rows: rows)
-                    }
+                ForEach(Set(preview.rows.map(\.account)).sorted(), id: \.self) { account in
+                    BarAppLimitsCard(
+                        app: account.app,
+                        title: preview.seriesLabel(of: account),
+                        step: preview.colorStep(of: account),
+                        rows: preview.rows.filter { $0.account == account }
+                    )
                 }
             }
         }
@@ -141,6 +143,7 @@ private struct PreviewContent: View {
 
 private struct HourlyChart: View {
     let usage: TokenUsage
+    let label: (BarAppAccount) -> String
 
     var body: some View {
         if usage.total == 0 {
@@ -149,32 +152,35 @@ private struct HourlyChart: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 60)
         } else {
-            StackedTokensChart(usage: usage, unit: .hour, compact: true)
+            StackedTokensChart(usage: usage, unit: .hour, compact: true, label: label)
                 .frame(height: 60)
                 .accessibilityLabel("Tokens per hour over the last 24 hours, stacked by cache reads, input and output")
         }
     }
 }
 
-/// One Bar App's Limits grouped on a card, so the panel reads as one block
-/// per Bar App rather than one long list.
+/// One Account's Limits grouped on a card, so the panel reads as one block
+/// per Account rather than one long list.
 private struct BarAppLimitsCard: View {
     let app: BarApp
+    /// The Bar App's name, with the Account after it when the app has several.
+    let title: String
+    let step: Int
     let rows: [MenuBarLimitRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(app.brandColor)
+                    .fill(app.brandColor(step: step))
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
-                Text(app.displayName)
+                Text(title)
                     .font(.callout.weight(.semibold))
             }
             .accessibilityElement(children: .combine)
             ForEach(rows) { row in
-                LimitRowView(row: row)
+                LimitRowView(row: row, step: step)
             }
         }
         .padding(12)
@@ -184,6 +190,7 @@ private struct BarAppLimitsCard: View {
 
 private struct LimitRowView: View {
     let row: MenuBarLimitRow
+    let step: Int
 
     private static let paceTint = LimitCard.Severity.runningLow.labelColor
 
@@ -200,7 +207,7 @@ private struct LimitRowView: View {
                     .monospacedDigit()
                     .foregroundStyle(row.severity == .normal ? AnyShapeStyle(.primary) : AnyShapeStyle(row.severity.labelColor))
             }
-            LimitMeter(fraction: row.utilization / 100, color: row.severity.meterColor(for: row.app), paceMark: row.windowElapsed)
+            LimitMeter(fraction: row.utilization / 100, color: row.severity.meterColor(for: row.app, step: step), paceMark: row.windowElapsed)
                 .accessibilityLabel("\(row.windowName) used")
                 .accessibilityValue(DisplayFormat.points(row.percentUsed))
             if let pace = row.paceText, let gap = row.paceGap {

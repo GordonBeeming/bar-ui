@@ -127,10 +127,32 @@ extension BarApp {
     /// Only the spec's two file name patterns count, so a stray `.DS_Store` or
     /// another app's files in a shared folder never look like History.
     func isTelemetryFileName(_ name: String) -> Bool {
-        let pattern = /^(?<service>[a-z]+)-(?:metrics|logs)-\d{4}-\d{2}-\d{2}\.jsonl$/
-        guard let match = name.wholeMatch(of: pattern) else {
-            return false
-        }
-        return match.output.service == serviceName
+        telemetryFile(named: name) != nil
     }
+
+    /// What a spec file name says about its file, or nil when it isn't one of
+    /// this Bar App's. The account part is the only thing that tells Accounts
+    /// apart before a record is read, and it is why a Bar UI build from before
+    /// Accounts skips these files: its pattern has no room for the dot.
+    func telemetryFile(named name: String) -> TelemetryFileName? {
+        let pattern = /^(?<service>[a-z]+)(?:\.(?<account>[a-z0-9-]+))?-(?<kind>metrics|logs)-\d{4}-\d{2}-\d{2}\.jsonl$/
+        guard let match = name.wholeMatch(of: pattern), match.output.service == serviceName else {
+            return nil
+        }
+        let account = match.output.account.map(String.init)
+        // The default Account has no part in its names, so `.default` would be
+        // a second spelling of it and two files could claim one series.
+        guard account != BarAppAccount.defaultID else {
+            return nil
+        }
+        return TelemetryFileName(
+            accountID: account ?? BarAppAccount.defaultID,
+            isLogs: match.output.kind == "logs"
+        )
+    }
+}
+
+struct TelemetryFileName: Equatable {
+    let accountID: String
+    let isLogs: Bool
 }

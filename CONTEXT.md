@@ -8,6 +8,10 @@ A desktop dashboard that shows the telemetry Gordon's menu bar apps record about
 One of Gordon's menu bar apps that watches an AI coding tool's usage limits and can record telemetry about it. The set is closed and known in code: ClaudeBar, CodexBar, and GrokBar.
 _Avoid_: source, plugin, provider
 
+**Account**:
+One sign-in of an AI tool that a Bar App watches. A Bar App has one or more. The first is `default`; any other has an id of lowercase letters, digits and hyphens. Limits, tokens and Perks belong to an Account, while Tracking and the Telemetry Folder belong to the Bar App.
+_Avoid_: profile, user, login
+
 **Dashboard**:
 This app, shipped as Bar UI. It finds installed Bar Apps, reads their Telemetry, and shows it.
 _Avoid_: viewer, monitor
@@ -81,6 +85,7 @@ _Avoid_: redemption token, offer
 
 - The **Dashboard** reads the **Telemetry** of zero or more **Bar Apps**, and never changes it.
 - A **Bar App** is in one of these states: not installed, installed without **Tracking**, installed without **Tracking** but with **History**, or **Tracking**.
+- A **Bar App** has one or more **Accounts**, and each **Account** has its own **Limits** and tokens.
 - The **Overview** combines every **Bar App**; each **Bar App** also has a page of its own.
 
 ## Flagged ambiguities

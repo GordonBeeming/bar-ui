@@ -55,9 +55,10 @@ struct OverviewView: View {
                     if let problem {
                         ProblemLabel(problem: problem)
                     }
-                    LimitsStrip(cards: cards)
+                    LimitsStrip(cards: cards, overview: overview)
                     TokensSection(overview: overview, now: now, range: $range)
                     ResetsAndPerksSection(
+                        overview: overview,
                         events: overview.events(range: range, now: now),
                         range: range,
                         now: now,
@@ -84,6 +85,18 @@ struct ProblemLabel: View {
 
 private struct LimitsStrip: View {
     let cards: [LimitCard]
+    let overview: LimitsOverview
+
+    /// Only an app with several Accounts needs to say which one a card is.
+    private func accountLabel(of card: LimitCard) -> String? {
+        overview.accounts.filter { $0.app == card.app }.count > 1 ? overview.label(of: card.account) : nil
+    }
+
+    /// One card saying its Account makes every card keep the line, so the
+    /// rows of the grid stay level.
+    private var hasAccountLine: Bool {
+        cards.contains { accountLabel(of: $0) != nil }
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: 16, alignment: .top)]
 
@@ -98,7 +111,12 @@ private struct LimitsStrip: View {
         } else {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
                 ForEach(cards) { card in
-                    LimitCardView(card: card)
+                    LimitCardView(
+                        card: card,
+                        accountLabel: accountLabel(of: card),
+                        reservesAccountLine: hasAccountLine,
+                        step: overview.colorStep(of: card.account)
+                    )
                 }
             }
             .accessibilityElement(children: .contain)
@@ -109,6 +127,14 @@ private struct LimitsStrip: View {
 
 private struct LimitCardView: View {
     let card: LimitCard
+    /// The Account's label, when its Bar App has more than one.
+    let accountLabel: String?
+    let reservesAccountLine: Bool
+    let step: Int
+
+    private var seriesLabel: String {
+        accountLabel.map { "\(card.appName) · \($0)" } ?? card.appName
+    }
 
     private static let resetFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
@@ -116,7 +142,7 @@ private struct LimitCardView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(card.app.brandColor)
+                    .fill(card.app.brandColor(step: step))
                     .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text(card.appName)
@@ -127,6 +153,15 @@ private struct LimitCardView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if reservesAccountLine {
+                Text(accountLabel ?? " ")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.top, -6)
+            }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(DisplayFormat.points(card.percentUsed))
@@ -143,8 +178,8 @@ private struct LimitCardView: View {
                 }
             }
 
-            LimitMeter(fraction: card.utilization / 100, color: card.severity.meterColor(for: card.app), paceMark: card.windowElapsed)
-                .accessibilityLabel("\(card.appName) \(card.windowName) used")
+            LimitMeter(fraction: card.utilization / 100, color: card.severity.meterColor(for: card.app, step: step), paceMark: card.windowElapsed)
+                .accessibilityLabel("\(seriesLabel) \(card.windowName) used")
                 .accessibilityValue(DisplayFormat.points(card.percentUsed))
 
             // The cards sit side by side, so a Limit with no pace reading yet

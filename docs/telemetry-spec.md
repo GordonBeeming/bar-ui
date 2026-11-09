@@ -17,8 +17,9 @@ Bar UI drops any record that doesn't conform, counts what it dropped, and links 
 | | |
 |---|---|
 | Folder | The **Telemetry Folder**. Default `~/Library/Application Support/<AppName>/Telemetry` (for example `~/Library/Application Support/ClaudeBar/Telemetry`). It isn't in Documents, because macOS asks the person to allow every app that reads or writes there. |
-| Metrics file | `<service.name>-metrics-YYYY-MM-DD.jsonl` |
-| Logs file | `<service.name>-logs-YYYY-MM-DD.jsonl` |
+| Metrics file | `<service.name>[.<account id>]-metrics-YYYY-MM-DD.jsonl` |
+| Logs file | `<service.name>[.<account id>]-logs-YYYY-MM-DD.jsonl` |
+| Account part | Left out for the `default` **Account**. For any other Account it is a dot and the Account's id, which matches `[a-z0-9-]+`. See [3](#3-resource-and-scope). |
 | Date in the name | The UTC date the record was written. |
 | Permissions | Files `0600`. A folder the Bar App creates is `0700`. A folder that already exists keeps its permissions, because it may be one the person chose. |
 
@@ -58,6 +59,15 @@ Every `ResourceMetrics` and `ResourceLogs` MUST carry these resource attributes:
 | `bar.spec.version` | `"1"` |
 
 A record without `bar.spec.version` = `"1"` doesn't conform.
+
+A Bar App that watches more than one **Account** of its tool writes each Account to its own files and MAY add these resource attributes:
+
+| Attribute | Value |
+|---|---|
+| `account.id` | The Account's id, matching `[a-z0-9-]+`. It MUST match the account part of the file name. When it is absent the Account is `default`, which is also what a file with no account part means. |
+| `account.name` | A label for people, such as an email address. Bar UI shows it and never uses it to tell Accounts apart. |
+
+A record whose `account.id` (or `default` when absent) differs from the account part of its file name doesn't conform. A Bar App with one Account needs neither attribute and keeps today's file names.
 
 The instrumentation scope name is `com.gordonbeeming.<AppName>.telemetry` (for example `com.gordonbeeming.ClaudeBar.telemetry`). The scope version is the app version.
 
@@ -201,3 +211,4 @@ The Bar App writes the new values to its defaults domain, and Bar UI picks them 
 - A change that would make an older reader misread data bumps `bar.spec.version`.
 - Adding optional attributes, events or appendix metrics doesn't.
 - Bar UI drops records from a spec version it doesn't know, and says so.
+- Accounts (`account.id`, `account.name` and the `.<account id>` file name part) were added without bumping the version. A reader built before them only imports names shaped `<service>-(metrics|logs)-YYYY-MM-DD.jsonl`, so it skips an Account's files instead of misreading them as the default Account's. See [ADR 0004](adr/0004-bar-app-accounts.md).

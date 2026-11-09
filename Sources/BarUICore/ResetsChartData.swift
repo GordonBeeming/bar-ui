@@ -8,17 +8,27 @@ public struct ResetsChartData: Sendable, Equatable {
     public struct Bar: Sendable, Equatable, Identifiable {
         public let id: String
         public let app: BarApp
+        public let accountID: String
         public let limitName: String
         public let date: Date
         public let unusedPercent: Double
+
+        public var account: BarAppAccount {
+            BarAppAccount(app: app, accountID: accountID)
+        }
     }
 
     public struct PerkMarker: Sendable, Equatable, Identifiable {
         public let id: String
         public let app: BarApp
+        public let accountID: String
         public let title: String
         public let detail: String
         public let date: Date
+
+        public var account: BarAppAccount {
+            BarAppAccount(app: app, accountID: accountID)
+        }
     }
 
     /// Everything drawn at one instant, so a hover can list resets and Perk
@@ -51,12 +61,13 @@ public struct ResetsChartData: Sendable, Equatable {
                 bars.append(Bar(
                     id: event.id,
                     app: event.app,
+                    accountID: event.accountID,
                     limitName: event.limitName ?? event.title,
                     date: event.date,
                     unusedPercent: min(max(unused, 0), 100)
                 ))
             case .perkAvailable, .perkGone:
-                perks.append(PerkMarker(id: event.id, app: event.app, title: event.title, detail: event.detail, date: event.date))
+                perks.append(PerkMarker(id: event.id, app: event.app, accountID: event.accountID, title: event.title, detail: event.detail, date: event.date))
             case .limitAppeared, .limitDisappeared, .runningLow, .nearLimit, .trackingStarted:
                 continue
             }

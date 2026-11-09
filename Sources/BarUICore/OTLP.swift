@@ -32,8 +32,18 @@ enum OTLPLines {
 
     /// Whether a resource's records can be read as this Bar App's under
     /// Telemetry Spec v1. One that isn't is dropped whole rather than in part.
-    static func isConforming(resource attributes: [KeyValue], of app: BarApp) -> Bool {
-        attributes.string("bar.spec.version") == "1" && attributes.string("service.name") == app.serviceName
+    /// `accountID` is the one the file's name gave. A resource that names a
+    /// different Account (or none, meaning `default`) is in the wrong file, so
+    /// none of it can be trusted to belong to the series the name points at.
+    static func isConforming(resource attributes: [KeyValue], of app: BarApp, account accountID: String = BarAppAccount.defaultID) -> Bool {
+        attributes.string("bar.spec.version") == "1"
+            && attributes.string("service.name") == app.serviceName
+            && (attributes.string("account.id") ?? BarAppAccount.defaultID) == accountID
+    }
+
+    /// The label the Bar App gave the Account, for showing to people.
+    static func accountName(in attributes: [KeyValue]) -> String? {
+        attributes.string("account.name").flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The rest of the resource attributes spec §3 requires. Only the `bar.*`
