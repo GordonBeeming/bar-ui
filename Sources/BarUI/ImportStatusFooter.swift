@@ -1,3 +1,4 @@
+import BarUICore
 import SwiftUI
 
 /// The sidebar's last line: when Telemetry was last imported into the
@@ -5,6 +6,9 @@ import SwiftUI
 struct ImportStatusFooter: View {
     /// The relative time only needs to move on as fast as its wording does.
     private static let tick: TimeInterval = 15
+
+    /// Lines the version up under the import text, past the label's icon.
+    private static let labelIndent: CGFloat = 20
 
     private static let relative: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
@@ -14,15 +18,23 @@ struct ImportStatusFooter: View {
 
     let lastImportedAt: Date?
     let archiveFailure: String?
+    var version = AppVersion.current
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: Self.tick)) { context in
-            label(now: context.date)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 2) {
+                label(now: context.date)
+                // The short form is what fits; the tooltip has the build and,
+                // for a local build, the commit.
+                Text("Bar UI \(version.short)")
+                    .help(version.display)
+                    .padding(.leading, Self.labelIndent)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
     }
 
