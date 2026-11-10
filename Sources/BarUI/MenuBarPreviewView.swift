@@ -14,7 +14,30 @@ struct MenuBarPreviewView: View {
     /// this would mostly find nothing new.
     private static let refreshInterval: Duration = .seconds(15)
 
+    /// Wide enough for two columns of cards, so five Accounts fit a laptop
+    /// screen without scrolling.
+    static let width: CGFloat = 680
+
+    /// The panel's padding, the four 14 pt gaps between its sections and the two
+    /// dividers; everything else that takes height is measured.
+    private static let layoutSpacing: Double = 32 + 4 * 14 + 2
+
     @Environment(\.openWindow) private var openWindow
+
+    /// The visible height of the screen the panel is on, nil until it has a window.
+    @State private var screenHeight: CGFloat?
+    @State private var summaryHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
+
+    private var cardAreaLimit: CGFloat {
+        let visible = screenHeight ?? NSScreen.main?.visibleFrame.height ?? 800
+        return CGFloat(MenuBarGrid.cardAreaLimit(
+            visibleHeight: Double(visible),
+            summaryHeight: Double(summaryHeight),
+            footerHeight: Double(footerHeight),
+            spacing: Self.layoutSpacing
+        ))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -22,7 +45,7 @@ struct MenuBarPreviewView: View {
                 // Countdowns move on their own; samples only arrive every few
                 // minutes, so a half-minute tick keeps them honest.
                 TimelineView(.periodic(from: .now, by: 30)) { context in
-                    PreviewContent(preview: preview, now: context.date)
+                    PreviewContent(preview: preview, now: context.date, cardAreaLimit: cardAreaLimit, summaryHeight: $summaryHeight)
                 }
             } else {
                 Label(archiveFailure ?? "The Archive couldn't be opened", systemImage: "externaldrive.badge.exclamationmark")
@@ -31,9 +54,11 @@ struct MenuBarPreviewView: View {
             }
             Divider()
             footer
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
         }
         .padding(16)
-        .frame(width: 360)
+        .frame(width: Self.width)
+        .background(WindowScreenReader { screenHeight = $0 })
         .task {
             await keepFresh()
         }
@@ -49,6 +74,10 @@ struct MenuBarPreviewView: View {
             }
             .keyboardShortcut(.defaultAction)
             Spacer()
+            Text(AppVersion.current.short)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help(AppVersion.current.display)
             SettingsLink {
                 Image(systemName: "gearshape")
             }
@@ -78,16 +107,27 @@ private struct PreviewContent: View {
     let preview: MenuBarPreview
     let now: Date
 
+    /// The most height the cards may take, worked out by the panel from its
+    /// own screen and the heights it measured.
+    let cardAreaLimit: CGFloat
+    /// Reports the height of what sits above the cards, for that sum.
+    @Binding var summaryHeight: CGFloat
+
+    @State private var cardsHeight: CGFloat = 0
+
     var body: some View {
         let usage = preview.tokenUsage(now: now)
         let pace = preview.pace(now: now)
         VStack(alignment: .leading, spacing: 14) {
-            if let problem = preview.problem {
-                Label(problem, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 14) {
+                if let problem = preview.problem {
+                    Label(problem, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                tokens(usage: usage, pace: pace)
             }
-            tokens(usage: usage, pace: pace)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryHeight = $0 }
             Divider()
             limits
         }
@@ -127,16 +167,35 @@ private struct PreviewContent: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         } else {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Set(preview.rows.map(\.account)).sorted(), id: \.self) { account in
-                    BarAppLimitsCard(
-                        app: account.app,
-                        title: preview.seriesLabel(of: account),
-                        step: preview.colorStep(of: account),
-                        rows: preview.rows.filter { $0.account == account }
-                    )
+            let accounts = Set(preview.rows.map(\.account)).sorted()
+            let cards = Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+                // A row sizes to its tallest card, so neighbours stay level.
+                ForEach(MenuBarGrid.rows(of: accounts, columns: MenuBarGrid.columnCount(forCards: accounts.count)), id: \.first) { pair in
+                    GridRow {
+                        ForEach(pair, id: \.self) { account in
+                            BarAppLimitsCard(
+                                app: account.app,
+                                title: preview.seriesLabel(of: account),
+                                step: preview.colorStep(of: account),
+                                rows: preview.rows.filter { $0.account == account }
+                            )
+                        }
+                    }
                 }
             }
+            // Offered no more than it needs, so a row is as tall as its tallest
+            // card and extra panel height doesn't stretch the rows apart.
+            .fixedSize(horizontal: false, vertical: true)
+            // The panel can't grow past the screen, so cards that don't fit
+            // scroll and the footer stays where it is. The scroll view is as
+            // tall as its content, up to that limit, because it has no height
+            // of its own to offer the panel.
+            ScrollView {
+                cards
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(cardsHeight, cardAreaLimit))
         }
     }
 }
@@ -177,12 +236,16 @@ private struct BarAppLimitsCard: View {
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             .accessibilityElement(children: .combine)
             ForEach(rows) { row in
                 LimitRowView(row: row, step: step)
             }
         }
+        // Fills the row, so two cards side by side end level.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
         .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -229,5 +292,72 @@ private struct LimitRowView: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Tells its owner the visible height of the screen the panel is on, and again
+/// whenever the panel moves to another. `NSScreen.main` is the screen with the
+/// key window, which isn't necessarily this one.
+private struct WindowScreenReader: NSViewRepresentable {
+    let onChange: (CGFloat?) -> Void
+
+    func makeNSView(context: Context) -> ScreenView {
+        let view = ScreenView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class ScreenView: NSView {
+        var onChange: (CGFloat?) -> Void = { _ in }
+        // Only touched on the main thread, and read in `deinit`, which Swift treats as nonisolated.
+        nonisolated(unsafe) private var observers: [any NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeObservers()
+            guard let window else {
+                return
+            }
+            // queue: .main delivers on the main thread, which is what makes assumeIsolated safe here.
+            // The window moving to another screen and the screen itself changing size
+            // or resolution both change the visible height.
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.report()
+                    }
+                },
+                center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.report()
+                    }
+                }
+            ]
+            report()
+        }
+
+        private nonisolated func removeObservers() {
+            for observer in observers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            observers = []
+        }
+
+        private func report() {
+            // Deferred: this can run while SwiftUI is still laying out.
+            let height = window?.screen?.visibleFrame.height
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange(height)
+            }
+        }
+
+        deinit {
+            removeObservers()
+        }
     }
 }
