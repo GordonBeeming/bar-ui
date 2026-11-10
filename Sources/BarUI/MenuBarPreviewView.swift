@@ -314,24 +314,38 @@ private struct WindowScreenReader: NSViewRepresentable {
     final class ScreenView: NSView {
         var onChange: (CGFloat?) -> Void = { _ in }
         // Only touched on the main thread, and read in `deinit`, which Swift treats as nonisolated.
-        nonisolated(unsafe) private var observer: (any NSObjectProtocol)?
+        nonisolated(unsafe) private var observers: [any NSObjectProtocol] = []
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-                self.observer = nil
-            }
+            removeObservers()
             guard let window else {
                 return
             }
             // queue: .main delivers on the main thread, which is what makes assumeIsolated safe here.
-            observer = NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.report()
+            // The window moving to another screen and the screen itself changing size
+            // or resolution both change the visible height.
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.report()
+                    }
+                },
+                center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.report()
+                    }
                 }
-            }
+            ]
             report()
+        }
+
+        private nonisolated func removeObservers() {
+            for observer in observers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            observers = []
         }
 
         private func report() {
@@ -343,9 +357,7 @@ private struct WindowScreenReader: NSViewRepresentable {
         }
 
         deinit {
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
+            removeObservers()
         }
     }
 }

@@ -82,7 +82,10 @@ install: bundle
 		rm -rf dist; \
 		[ -z "$$previous_helper" ] || previous_helper="$(INSTALL_DIR)/BarUI.app/Contents/Library/LoginItems/BarUIHelper.app"; \
 	fi; \
-	if [ -n "$$previous_helper" ]; then open -g "$$previous_helper"; fi; \
+	if [ -n "$$previous_helper" ]; then \
+		open -g "$$previous_helper"; restart=$$?; \
+		[ "$$status" -ne 0 ] || status=$$restart; \
+	fi; \
 	if [ "$$status" -eq 0 ]; then echo "Launch with: open $(INSTALL_DIR)/BarUI.app"; fi; \
 	exit "$$status"
 
